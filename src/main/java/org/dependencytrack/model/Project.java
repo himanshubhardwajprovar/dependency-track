@@ -18,16 +18,21 @@
  */
 package org.dependencytrack.model;
 
-import alpine.json.TrimmedStringDeserializer;
+import alpine.common.validation.RegexSequence;
 import alpine.model.Team;
-import alpine.validation.RegexSequence;
+import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonIncludeProperties;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.github.packageurl.MalformedPackageURLException;
 import com.github.packageurl.PackageURL;
 import org.dependencytrack.resources.v1.serializers.CustomPackageURLSerializer;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Element;
 import javax.jdo.annotations.Extension;
@@ -41,10 +46,12 @@ import javax.jdo.annotations.PersistenceCapable;
 import javax.jdo.annotations.Persistent;
 import javax.jdo.annotations.PrimaryKey;
 import javax.jdo.annotations.Unique;
+import javax.jdo.annotations.Serialized;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -80,6 +87,14 @@ import java.util.UUID;
                 @Persistent(name = "properties"),
                 @Persistent(name = "tags"),
                 @Persistent(name = "accessTeams")
+        }),
+        @FetchGroup(name = "METRICS_UPDATE", members = {
+                @Persistent(name = "id"),
+                @Persistent(name = "lastInheritedRiskScore"),
+                @Persistent(name = "uuid")
+        }),
+        @FetchGroup(name = "PARENT", members = {
+                @Persistent(name = "parent")
         })
 })
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -91,7 +106,9 @@ public class Project implements Serializable {
      * Defines JDO fetch groups for this class.
      */
     public enum FetchGroup {
-        ALL
+        ALL,
+        METRICS_UPDATE,
+        PARENT
     }
 
     @PrimaryKey
@@ -184,6 +201,7 @@ public class Project implements Serializable {
 
     @Persistent
     @Column(name = "PARENT_PROJECT_ID")
+    @JsonIncludeProperties(value = {"name", "version", "uuid"})
     private Project parent;
 
     @Persistent(mappedBy = "parent")
@@ -225,6 +243,7 @@ public class Project implements Serializable {
 
     @Persistent
     @Column(name = "ACTIVE")
+    @JsonSerialize(nullsUsing = BooleanDefaultTrueSerializer.class)
     private Boolean active; // Added in v3.6. Existing records need to be nullable on upgrade.
 
     @Persistent(table = "PROJECT_ACCESS_TEAMS", defaultFetchGroup = "true")
@@ -234,7 +253,15 @@ public class Project implements Serializable {
     @JsonIgnore
     private List<Team> accessTeams;
 
+    @Persistent(defaultFetchGroup = "true")
+    @Column(name = "EXTERNAL_REFERENCES")
+    @Serialized
+    private List<ExternalReference> externalReferences;
+
     private transient ProjectMetrics metrics;
+
+    @JsonIgnore
+    private transient List<Component> dependencyGraph;
 
     public long getId() {
         return id;
@@ -409,14 +436,19 @@ public class Project implements Serializable {
         this.lastInheritedRiskScore = lastInheritedRiskScore;
     }
 
-    public boolean isActive() {
-        if (active == null) {
-            return true;
-        }
+    public List<ExternalReference> getExternalReferences() {
+        return externalReferences;
+    }
+
+    public void setExternalReferences(List<ExternalReference> externalReferences) {
+        this.externalReferences = externalReferences;
+    }
+
+    public Boolean isActive() {
         return active;
     }
 
-    public void setActive(boolean active) {
+    public void setActive(Boolean active) {
         this.active = active;
     }
 
@@ -443,6 +475,14 @@ public class Project implements Serializable {
         this.accessTeams.add(accessTeam);
     }
 
+    public List<Component> getDependencyGraph() {
+        return dependencyGraph;
+    }
+
+    public void setDependencyGraph(List<Component> dependencyGraph) {
+        this.dependencyGraph = dependencyGraph;
+    }
+
     @Override
     public String toString() {
         if (getPurl() != null) {
@@ -458,5 +498,14 @@ public class Project implements Serializable {
             }
             return sb.toString();
         }
+    }
+    
+    private final static class BooleanDefaultTrueSerializer extends JsonSerializer<Boolean> {
+
+        @Override
+        public void serialize(Boolean value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+            gen.writeBoolean(value != null ? value : true);
+        }
+        
     }
 }

@@ -20,6 +20,7 @@ package org.dependencytrack.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.IdGeneratorStrategy;
 import javax.jdo.annotations.PersistenceCapable;
@@ -44,7 +45,7 @@ public class Bom implements Serializable {
     private static final long serialVersionUID = -4378439983100141050L;
 
     public enum Format {
-        CYCLONEDX("CycloneDX", "CycloneDX BOM Specification"),
+        CYCLONEDX("CycloneDX", "CycloneDX BOM Standard"),
         SPDX("SPDX", "Software Package Data Exchange");
 
         private final String formatShortName;
@@ -81,6 +82,14 @@ public class Bom implements Serializable {
     @Persistent
     @Column(name = "SPEC_VERSION")
     private String specVersion;
+
+    @Persistent
+    @Column(name = "BOM_VERSION")
+    private Integer bomVersion;
+
+    @Persistent
+    @Column(name = "SERIAL_NUMBER")
+    private String serialNumber;
 
     @Persistent(defaultFetchGroup = "true")
     @Column(name = "PROJECT_ID", allowsNull = "false")
@@ -123,6 +132,22 @@ public class Bom implements Serializable {
 
     public void setSpecVersion(String specVersion) {
         this.specVersion = specVersion;
+    }
+
+    public Integer getBomVersion() {
+        return bomVersion;
+    }
+
+    public void setBomVersion(Integer bomVersion) {
+        this.bomVersion = bomVersion;
+    }
+
+    public String getSerialNumber() {
+        return serialNumber;
+    }
+
+    public void setSerialNumber(String serialNumber) {
+        this.serialNumber = serialNumber;
     }
 
     public Project getProject() {

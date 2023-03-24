@@ -50,6 +50,7 @@ services:
     # Optional OpenID Connect (OIDC) Properties
     # - ALPINE_OIDC_ENABLED=true
     # - ALPINE_OIDC_ISSUER=https://auth.example.com/auth/realms/example
+    # - ALPINE_OIDC_CLIENT_ID=
     # - ALPINE_OIDC_USERNAME_CLAIM=preferred_username
     # - ALPINE_OIDC_TEAMS_CLAIM=groups
     # - ALPINE_OIDC_USER_PROVISIONING=true
@@ -62,14 +63,34 @@ services:
     # - ALPINE_HTTP_PROXY_PASSWORD=
     # - ALPINE_NO_PROXY=
     #
+    # Optional HTTP Outbound Connection Timeout Settings. All values are in seconds.
+    # - ALPINE_HTTP_TIMEOUT_CONNECTION=30
+    # - ALPINE_HTTP_TIMEOUT_SOCKET=30
+    # - ALPINE_HTTP_TIMEOUT_POOL=60
+    #
     # Optional Cross-Origin Resource Sharing (CORS) Headers
     # - ALPINE_CORS_ENABLED=true
     # - ALPINE_CORS_ALLOW_ORIGIN=*
-    # - ALPINE_CORS_ALLOW_METHODS=GET POST PUT DELETE OPTIONS
+    # - ALPINE_CORS_ALLOW_METHODS=GET, POST, PUT, DELETE, OPTIONS
     # - ALPINE_CORS_ALLOW_HEADERS=Origin, Content-Type, Authorization, X-Requested-With, Content-Length, Accept, Origin, X-Api-Key, X-Total-Count, *
     # - ALPINE_CORS_EXPOSE_HEADERS=Origin, Content-Type, Authorization, X-Requested-With, Content-Length, Accept, Origin, X-Api-Key, X-Total-Count
     # - ALPINE_CORS_ALLOW_CREDENTIALS=true
     # - ALPINE_CORS_MAX_AGE=3600
+    #
+    # Optional metrics properties
+    # - ALPINE_METRICS_ENABLED=true
+    # - ALPINE_METRICS_AUTH_USERNAME=
+    # - ALPINE_METRICS_AUTH_PASSWORD=
+    #
+    # Optional environmental variables to enable default notification publisher templates override and set the base directory to search for templates
+    # - DEFAULT_TEMPLATES_OVERRIDE_ENABLED=false
+    # - DEFAULT_TEMPLATES_OVERRIDE_BASE_DIRECTORY=/data
+    #
+    # Optional configuration for the Snyk analyzer
+    # - SNYK_THREAD_BATCH_SIZE=10
+    #
+    # Optional environmental variables to provide more JVM arguments to the API Server JVM, i.e. "-XX:ActiveProcessorCount=8"
+    # - EXTRA_JAVA_OPTIONS=
     deploy:
       resources:
         limits:
@@ -105,4 +126,3 @@ services:
     ports:
       - "8080:8080"
     restart: unless-stopped
-

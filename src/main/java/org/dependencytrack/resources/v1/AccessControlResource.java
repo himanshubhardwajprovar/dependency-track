@@ -18,11 +18,11 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.PermissionRequired;
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import alpine.model.Team;
 import alpine.persistence.PaginatedResult;
-import alpine.resources.AlpineResource;
+import alpine.server.auth.PermissionRequired;
+import alpine.server.resources.AlpineResource;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
@@ -33,6 +33,7 @@ import org.dependencytrack.auth.Permissions;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.resources.v1.vo.AclMappingRequest;
+
 import javax.validation.Validator;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
@@ -74,11 +75,13 @@ public class AccessControlResource extends AlpineResource {
     public Response retrieveProjects (@ApiParam(value = "The UUID of the team to retrieve mappings for", required = true)
                                       @PathParam("uuid") String uuid,
                                       @ApiParam(value = "Optionally excludes inactive projects from being returned", required = false)
-                                      @QueryParam("excludeInactive") boolean excludeInactive) {
+                                      @QueryParam("excludeInactive") boolean excludeInactive,
+                                      @ApiParam(value = "Optionally excludes children projects from being returned", required = false)
+                                      @QueryParam("onlyRoot") boolean onlyRoot) {
         try (QueryManager qm = new QueryManager(getAlpineRequest())) {
             final Team team = qm.getObjectByUuid(Team.class, uuid);
             if (team != null) {
-                final PaginatedResult result = qm.getProjects(team, excludeInactive, true);
+                final PaginatedResult result = qm.getProjects(team, excludeInactive, true, onlyRoot);
                 return Response.ok(result.getObjects()).header(TOTAL_COUNT_HEADER, result.getTotal()).build();
             } else {
                 return Response.status(Response.Status.NOT_FOUND).entity("The UUID of the team could not be found.").build();

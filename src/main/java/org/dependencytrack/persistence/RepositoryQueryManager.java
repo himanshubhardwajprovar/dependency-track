@@ -23,6 +23,7 @@ import alpine.resources.AlpineRequest;
 import org.dependencytrack.model.Repository;
 import org.dependencytrack.model.RepositoryMetaComponent;
 import org.dependencytrack.model.RepositoryType;
+
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
 import java.util.List;
@@ -74,7 +75,7 @@ public class RepositoryQueryManager extends QueryManager implements IQueryManage
     public List<Repository> getAllRepositories() {
         final Query<Repository> query = pm.newQuery(Repository.class);
         query.setOrdering("type asc, identifier asc");
-        return query.executeResultList(Repository.class);
+        return query.executeList();
     }
 
     /**
@@ -111,6 +112,7 @@ public class RepositoryQueryManager extends QueryManager implements IQueryManage
      */
     public boolean repositoryExist(RepositoryType type, String identifier) {
         final Query<Repository> query = pm.newQuery(Repository.class, "type == :type && identifier == :identifier");
+        query.setRange(0, 1);
         return singleResult(query.execute(type, identifier)) != null;
     }
 
@@ -151,14 +153,25 @@ public class RepositoryQueryManager extends QueryManager implements IQueryManage
      * @param identifier the identifier of the repository
      * @param url a url of the repository
      * @param internal specifies if the repository is internal
+     * @param username the username to access the (internal) repository with
+     * @param password the password to access the (internal) repository with
      * @param enabled specifies if the repository is enabled
      * @return the updated Repository
      */
-    public Repository updateRepository(UUID uuid, String identifier, String url, boolean internal, boolean enabled) {
+    public Repository updateRepository(UUID uuid, String identifier, String url, boolean internal, String username, String password, boolean enabled) {
         final Repository repository = getObjectByUuid(Repository.class, uuid);
         repository.setIdentifier(identifier);
         repository.setUrl(url);
         repository.setInternal(internal);
+
+        if (!internal) {
+            repository.setUsername(null);
+            repository.setPassword(null);
+        } else {
+            repository.setUsername(username);
+            repository.setPassword(password);
+        }
+
         repository.setEnabled(enabled);
         return persist(repository);
     }
@@ -173,6 +186,7 @@ public class RepositoryQueryManager extends QueryManager implements IQueryManage
     public RepositoryMetaComponent getRepositoryMetaComponent(RepositoryType repositoryType, String namespace, String name) {
         final Query<RepositoryMetaComponent> query = pm.newQuery(RepositoryMetaComponent.class);
         query.setFilter("repositoryType == :repositoryType && namespace == :namespace && name == :name");
+        query.setRange(0, 1);
         return singleResult(query.execute(repositoryType, namespace, name));
     }
 
@@ -183,7 +197,7 @@ public class RepositoryQueryManager extends QueryManager implements IQueryManage
      */
     public synchronized RepositoryMetaComponent synchronizeRepositoryMetaComponent(final RepositoryMetaComponent transientRepositoryMetaComponent) {
         final RepositoryMetaComponent metaComponent = getRepositoryMetaComponent(transientRepositoryMetaComponent.getRepositoryType(),
-                transientRepositoryMetaComponent.getNamespace(), transientRepositoryMetaComponent.getName());;
+                transientRepositoryMetaComponent.getNamespace(), transientRepositoryMetaComponent.getName());
         if (metaComponent != null) {
             metaComponent.setRepositoryType(transientRepositoryMetaComponent.getRepositoryType());
             metaComponent.setNamespace(transientRepositoryMetaComponent.getNamespace());

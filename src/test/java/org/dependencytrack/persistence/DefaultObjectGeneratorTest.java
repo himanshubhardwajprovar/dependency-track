@@ -18,10 +18,13 @@
  */
 package org.dependencytrack.persistence;
 
+import java.lang.reflect.Method;
 import org.dependencytrack.PersistenceCapableTest;
+import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.model.ConfigPropertyConstants;
+import org.dependencytrack.notification.publisher.DefaultNotificationPublishers;
 import org.junit.Assert;
 import org.junit.Test;
-import java.lang.reflect.Method;
 
 public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
 
@@ -31,8 +34,8 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         testLoadDefaultPersonas();
         testLoadDefaultLicenses();
         testLoadDefaultRepositories();
-        testLoadDefaultNotificicationPublishers();
         testLoadDefaultConfigProperties();
+        testLoadDefaultNotificationPublishers();
     }
 
     @Test
@@ -50,7 +53,7 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         Method method = generator.getClass().getDeclaredMethod("loadDefaultPermissions");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(9, qm.getPermissions().size());
+        Assert.assertEquals(Permissions.values().length, qm.getPermissions().size());
     }
 
     @Test
@@ -68,7 +71,7 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         Method method = generator.getClass().getDeclaredMethod("loadDefaultRepositories");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(13, qm.getAllRepositories().size());
+        Assert.assertEquals(14, qm.getAllRepositories().size());
     }
 
     @Test
@@ -77,15 +80,15 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         Method method = generator.getClass().getDeclaredMethod("loadDefaultConfigProperties");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(36, qm.getConfigProperties().size());
+        Assert.assertEquals(ConfigPropertyConstants.values().length, qm.getConfigProperties().size());
     }
 
     @Test
-    public void testLoadDefaultNotificicationPublishers() throws Exception {
+    public void testLoadDefaultNotificationPublishers() throws Exception {
         DefaultObjectGenerator generator = new DefaultObjectGenerator();
-        Method method = generator.getClass().getDeclaredMethod("loadDefaultNotificicationPublishers");
+        Method method = generator.getClass().getDeclaredMethod("loadDefaultNotificationPublishers");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(5, qm.getAllNotificationPublishers().size());
+        Assert.assertEquals(DefaultNotificationPublishers.values().length, qm.getAllNotificationPublishers().size());
     }
 }

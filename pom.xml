@@ -17,21 +17,21 @@
   ~ SPDX-License-Identifier: Apache-2.0
   ~ Copyright (c) Steve Springett. All Rights Reserved.
   -->
-
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <parent>
         <groupId>us.springett</groupId>
         <artifactId>alpine-parent</artifactId>
-        <version>1.10.0</version>
+        <version>2.2.1-SNAPSHOT</version>
     </parent>
 
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.dependencytrack</groupId>
     <artifactId>dependency-track</artifactId>
     <packaging>war</packaging>
-    <version>4.3.0-SNAPSHOT</version>
+    <version>4.8.0-SNAPSHOT</version>
 
     <name>Dependency-Track</name>
     <url>https://dependencytrack.org/</url>
@@ -81,28 +81,38 @@
 
     <properties>
         <!-- Dependency Versions -->
-        <frontend.version>4.2.0</frontend.version>
+        <frontend.version>4.7.1</frontend.version>
         <lib.alpine.version>${project.parent.version}</lib.alpine.version>
         <lib.cpe-parser.version>2.0.2</lib.cpe-parser.version>
-        <lib.cvss-calculator.version>1.4.0</lib.cvss-calculator.version>
-        <lib.cyclonedx-java.version>5.0.2</lib.cyclonedx-java.version>
-        <lib.jaxb.runtime.version>2.3.3</lib.jaxb.runtime.version>
-        <lib.lucene.version>8.9.0</lib.lucene.version>
-        <lib.packageurl.version>1.4.0</lib.packageurl.version>
-        <lib.pebble.version>3.1.5</lib.pebble.version>
-        <lib.unirest.version>3.11.12</lib.unirest.version>
-        <lib.vulndb-data-mirror.version>1.0.0</lib.vulndb-data-mirror.version>
+        <lib.cvss-calculator.version>1.4.1</lib.cvss-calculator.version>
+        <lib.owasp-rr-calculator.version>1.0.1</lib.owasp-rr-calculator.version>
+        <lib.cyclonedx-java.version>7.3.0</lib.cyclonedx-java.version>
+        <lib.jaxb.runtime.version>2.3.6</lib.jaxb.runtime.version>
+        <lib.json-unit.version>2.36.1</lib.json-unit.version>
+        <lib.lucene.version>8.11.2</lib.lucene.version>
+        <lib.packageurl.version>1.4.1</lib.packageurl.version>
+        <lib.pebble.version>3.2.0</lib.pebble.version>
+        <lib.resilience4j.version>2.0.1</lib.resilience4j.version>
+        <lib.woodstox.version>6.5.0</lib.woodstox.version>
+        <lib.junit-params.version>1.1.1</lib.junit-params.version>
+        <lib.signpost-core.version>2.1.1</lib.signpost-core.version>
+        <lib.httpclient.version>4.5.14</lib.httpclient.version>
+        <lib.log4j-over-slf4j.version>2.0.7</lib.log4j-over-slf4j.version>
         <!-- JDBC Drivers -->
-        <lib.jdbc-driver.mssql.version>8.4.1.jre11</lib.jdbc-driver.mssql.version>
-        <lib.jdbc-driver.mysql.version>8.0.26</lib.jdbc-driver.mysql.version>
-        <lib.jdbc-driver.postgresql.version>42.2.23</lib.jdbc-driver.postgresql.version>
+        <lib.jdbc-driver.mssql.version>11.2.3.jre17</lib.jdbc-driver.mssql.version>
+        <!-- Leave at 8.0.29 until https://github.com/datanucleus/datanucleus-rdbms/issues/446 is resolved! -->
+        <lib.jdbc-driver.mysql.version>8.0.29</lib.jdbc-driver.mysql.version>
+        <lib.jdbc-driver.postgresql.version>42.5.1</lib.jdbc-driver.postgresql.version>
         <!-- Maven Plugin Properties -->
         <plugin.cyclonedx.projectType>application</plugin.cyclonedx.projectType>
-        <plugin.github-release-plugin.version>1.4.0</plugin.github-release-plugin.version>
+        <plugin.cyclonedx.outputFormat>json</plugin.cyclonedx.outputFormat>
         <plugin.retirejs.breakOnFailure>false</plugin.retirejs.breakOnFailure>
+        <plugin.jetty.version>10.0.14</plugin.jetty.version>
         <!-- SonarCloud properties -->
         <sonar.exclusions>src/main/webapp/**</sonar.exclusions>
-
+        <!-- CycloneDX CLI -->
+        <cyclonedx-cli.path>cyclonedx</cyclonedx-cli.path>
+        <services.bom.merge.skip>true</services.bom.merge.skip>
     </properties>
 
     <repositories>
@@ -120,7 +130,22 @@
         <!-- Alpine -->
         <dependency>
             <groupId>us.springett</groupId>
-            <artifactId>alpine</artifactId>
+            <artifactId>alpine-common</artifactId>
+            <version>${lib.alpine.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.springett</groupId>
+            <artifactId>alpine-model</artifactId>
+            <version>${lib.alpine.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.springett</groupId>
+            <artifactId>alpine-infra</artifactId>
+            <version>${lib.alpine.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>us.springett</groupId>
+            <artifactId>alpine-server</artifactId>
             <version>${lib.alpine.version}</version>
         </dependency>
         <!-- CVSS Calculator -->
@@ -128,6 +153,12 @@
             <groupId>us.springett</groupId>
             <artifactId>cvss-calculator</artifactId>
             <version>${lib.cvss-calculator.version}</version>
+        </dependency>
+        <!-- OWASP Risk Rating calculator -->
+        <dependency>
+            <groupId>us.springett</groupId>
+            <artifactId>owasp-risk-rating-calculator</artifactId>
+            <version>${lib.owasp-rr-calculator.version}</version>
         </dependency>
         <!-- CPE Parser -->
         <dependency>
@@ -158,7 +189,7 @@
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
-            <version>20210307</version>
+            <version>20230227</version>
         </dependency>
         <!-- Package URL -->
         <dependency>
@@ -197,35 +228,37 @@
             <artifactId>pebble</artifactId>
             <version>${lib.pebble.version}</version>
         </dependency>
-        <!-- VulnDB data mirroring and parsing -->
+
         <dependency>
-            <groupId>us.springett</groupId>
-            <artifactId>vulndb-data-mirror</artifactId>
-            <version>${lib.vulndb-data-mirror.version}</version>
-            <!-- Exclude transitive version so Dependency-Track can manage independently -->
-            <exclusions>
-                <exclusion>
-                    <groupId>io.github.openunirest</groupId>
-                    <artifactId>open-unirest-java</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>${lib.httpclient.version}</version>
         </dependency>
-        <!-- Unirest -->
+
         <dependency>
-            <groupId>com.konghq</groupId>
-            <artifactId>unirest-java</artifactId>
-            <version>${lib.unirest.version}</version>
+            <groupId>oauth.signpost</groupId>
+            <artifactId>signpost-core</artifactId>
+            <version>${lib.signpost-core.version}</version>
+            <scope>compile</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpmime</artifactId>
+            <version>${lib.httpclient.version}</version>
+        </dependency>
+
+
         <dependency>
             <groupId>com.fasterxml.woodstox</groupId>
             <artifactId>woodstox-core</artifactId>
-            <version>6.2.6</version>
+            <version>${lib.woodstox.version}</version>
         </dependency>
-        <!-- Package version parsing -->
+
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-artifact</artifactId>
-            <version>3.8.1</version>
+            <version>3.9.1</version>
         </dependency>
         <!-- Bundle JDBC drivers -->
         <dependency>
@@ -237,6 +270,16 @@
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
             <version>${lib.jdbc-driver.mysql.version}</version>
+            <exclusions>
+                <!--
+                    Protobuf is only required for MySQL X DevAPI, which we do not use.
+                    https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-installing-maven.html
+                -->
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -247,25 +290,98 @@
         <dependency>
             <groupId>xerces</groupId>
             <artifactId>xercesImpl</artifactId>
-            <version>2.12.1</version>
+            <version>2.12.2</version>
         </dependency>
         <!-- Commons Compress -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-compress</artifactId>
-            <version>1.21</version>
+            <version>1.22</version>
         </dependency>
+        <!-- Resilience4J -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-retry</artifactId>
+            <version>${lib.resilience4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-ratelimiter</artifactId>
+            <version>${lib.resilience4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-micrometer</artifactId>
+            <version>${lib.resilience4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+            <version>${lib.log4j-over-slf4j.version}</version>
+        </dependency>
+
         <!-- Test Dependencies -->
         <dependency>
-            <groupId>org.mock-server</groupId>
-            <artifactId>mockserver-netty</artifactId>
-            <version>5.11.2</version>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${lib.junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>pl.pragmatists</groupId>
+            <artifactId>JUnitParams</artifactId>
+            <version>${lib.junit-params.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.test-framework.providers</groupId>
+            <artifactId>jersey-test-framework-provider-grizzly2</artifactId>
+            <version>${lib.jersey.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.connectors</groupId>
+            <artifactId>jersey-grizzly-connector</artifactId>
+            <version>${lib.jersey.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>3.11.2</version>
+            <version>${lib.mockito.version}</version>
+            <scope>test</scope>
+
+        </dependency>
+        <dependency>
+            <groupId>com.github.tomakehurst</groupId>
+            <artifactId>wiremock-jre8</artifactId>
+            <version>2.35.0</version>
+            <scope>test</scope>
+        </dependency>
+
+
+        <dependency>
+            <groupId>com.github.stefanbirkner</groupId>
+            <artifactId>system-rules</artifactId>
+            <version>1.19.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${lib.assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.javacrumbs.json-unit</groupId>
+            <artifactId>json-unit-assertj</artifactId>
+            <version>${lib.json-unit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mock-server</groupId>
+            <artifactId>mockserver-netty</artifactId>
+            <version>5.14.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -293,63 +409,93 @@
         </testResources>
         <plugins>
             <plugin>
-                <groupId>de.jutzig</groupId>
-                <artifactId>github-release-plugin</artifactId>
-                <version>${plugin.github-release-plugin.version}</version>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.2.1</version>
                 <configuration>
-                    <releaseName>${project.version}</releaseName>
-                    <tag>${project.version}</tag>
-                    <description>For official releases, refer to https://docs.dependencytrack.org/changelog/ for information about improvements and upgrade notes. If additional details are required, consult the closed issues for this release milestone.</description>
-                    <!--
-                         For snapshot pre-releases we want to override the existing snapshot
-                         by deleting it first and re-uploading the artifact. Caution should
-                         be taken to not re-release GA builds.
-                    -->
-                    <overwriteArtifact>true</overwriteArtifact>
-                    <deleteRelease>true</deleteRelease>
-                    <fileSets>
-                        <fileSet>
-                            <directory>${project.build.directory}</directory>
-                            <includes>
-                                <include>dependency-track-apiserver.jar</include>
-                                <include>dependency-track-bundled.jar</include>
-                                <include>checksums.xml</include>
-                                <include>bom.xml</include>
-                                <include>bom.json</include>
-                            </includes>
-                        </fileSet>
-                    </fileSets>
+                    <configLocation>${project.basedir}/.checkstyle.xml</configLocation>
+                    <includeResources>false</includeResources>
+                    <includeTestResources>false</includeTestResources>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>net.nicoulaj.maven.plugins</groupId>
-                <artifactId>checksum-maven-plugin</artifactId>
-                <version>1.11</version>
                 <executions>
                     <execution>
-                        <phase>none</phase>
+                        <phase>validate</phase>
                         <goals>
-                            <goal>files</goal>
+                            <goal>check</goal>
                         </goals>
                     </execution>
                 </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>10.6.0</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.surefire</groupId>
+                        <artifactId>surefire-junit4</artifactId>
+                        <version>${maven.surefire.plugin.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>merge-services-bom</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${cyclonedx-cli.path}</executable>
+                            <arguments>
+                                <argument>merge</argument>
+                                <argument>--input-files</argument>
+                                <argument>${project.build.directory}/bom.json</argument>
+                                <argument>${project.basedir}/src/main/resources/services.bom.json</argument>
+                                <argument>--output-file</argument>
+                                <argument>${project.build.directory}/bom.json</argument>
+                            </arguments>
+                            <skip>${services.bom.merge.skip}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>deploy-bom</id>
+                        <phase>prepare-package</phase>
+                        <configuration>
+                            <target>
+                                <copy file="${project.build.directory}/bom.json"
+                                      tofile="${project.build.directory}/${project.artifactId}/.well-known/sbom"/>
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-maven-plugin</artifactId>
+                <version>${plugin.jetty.version}</version>
                 <configuration>
-                    <csvSummary>false</csvSummary>
-                    <individualFiles>false</individualFiles>
-                    <xmlSummary>true</xmlSummary>
-                    <algorithms>
-                        <algorithm>SHA-1</algorithm>
-                        <algorithm>SHA-256</algorithm>
-                        <algorithm>SHA-512</algorithm>
-                    </algorithms>
-                    <fileSets>
-                        <fileSet>
-                            <directory>${project.build.directory}</directory>
-                            <includes>
-                                <include>dependency-track*.jar</include>
-                            </includes>
-                        </fileSet>
-                    </fileSets>
+                    <webApp>
+                        <contextPath>/</contextPath>
+                    </webApp>
                 </configuration>
             </plugin>
         </plugins>
@@ -364,7 +510,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-clean-plugin</artifactId>
-                        <version>3.1.0</version>
+                        <version>3.2.0</version>
                         <configuration>
                             <excludeDefaultDirectories>true</excludeDefaultDirectories>
                             <filesets>
@@ -399,6 +545,24 @@
             </properties>
         </profile>
         <profile>
+            <id>h2-console</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.eclipse.jetty</groupId>
+                        <artifactId>jetty-maven-plugin</artifactId>
+                        <version>${plugin.jetty.version}</version>
+                        <configuration>
+                            <webApp>
+                                <contextPath>/</contextPath>
+                            </webApp>
+                            <contextXml>src/test/webapp/WEB-INF/h2-console-activation.xml</contextXml>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
             <id>bundle-ui</id>
             <activation>
                 <property>
@@ -413,16 +577,14 @@
                 <plugins>
                     <plugin>
                         <artifactId>maven-antrun-plugin</artifactId>
-                        <version>3.0.0</version>
+                        <version>3.1.0</version>
                         <executions>
                             <execution>
                                 <id>frontend-download</id>
                                 <phase>prepare-package</phase>
                                 <configuration>
                                     <target>
-                                        <get src="https://github.com/DependencyTrack/frontend/releases/download/${frontend.version}/frontend-dist.zip"
-                                             dest="${project.build.directory}"
-                                             verbose="true"/>
+                                        <get src="https://github.com/DependencyTrack/frontend/releases/download/${frontend.version}/frontend-dist.zip" dest="${project.build.directory}" verbose="true"/>
                                     </target>
                                 </configuration>
                                 <goals>
@@ -434,8 +596,7 @@
                                 <phase>prepare-package</phase>
                                 <configuration>
                                     <target>
-                                        <unzip src="${project.build.directory}/frontend-dist.zip"
-                                               dest="${project.build.directory}/frontend">
+                                        <unzip src="${project.build.directory}/frontend-dist.zip" dest="${project.build.directory}/frontend">
                                         </unzip>
                                     </target>
                                 </configuration>

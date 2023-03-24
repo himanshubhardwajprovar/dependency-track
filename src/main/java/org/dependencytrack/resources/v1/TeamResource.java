@@ -18,11 +18,12 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.PermissionRequired;
-import alpine.logging.Logger;
+import alpine.Config;
+import alpine.common.logging.Logger;
 import alpine.model.ApiKey;
 import alpine.model.Team;
-import alpine.resources.AlpineResource;
+import alpine.server.auth.PermissionRequired;
+import alpine.server.resources.AlpineResource;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
@@ -32,7 +33,9 @@ import io.swagger.annotations.Authorization;
 import io.swagger.annotations.ResponseHeader;
 import org.dependencytrack.auth.Permissions;
 import org.dependencytrack.persistence.QueryManager;
+import org.dependencytrack.resources.v1.vo.TeamSelfResponse;
 import org.owasp.security.logging.SecurityMarkers;
+
 import javax.validation.Validator;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
@@ -177,9 +180,9 @@ public class TeamResource extends AlpineResource {
         try (QueryManager qm = new QueryManager()) {
             final Team team = qm.getObjectByUuid(Team.class, jsonTeam.getUuid(), Team.FetchGroup.ALL.name());
             if (team != null) {
-                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_AUDIT, "Team deleted: " + team.getName());
-                qm.delete(team.getApiKeys());
-                qm.delete(team);
+                String teamName = team.getName();
+                qm.recursivelyDeleteTeam(team);
+                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_AUDIT, "Team deleted: " + teamName);
                 return Response.status(Response.Status.NO_CONTENT).build();
             } else {
                 return Response.status(Response.Status.NOT_FOUND).entity("The team could not be found.").build();
@@ -265,4 +268,35 @@ public class TeamResource extends AlpineResource {
         }
     }
 
+    @GET
+    @Path("self")
+    @Produces(MediaType.APPLICATION_JSON)
+    @ApiOperation(
+            value = "Returns information about the current team.",
+            response = TeamSelfResponse.class
+    )
+    @ApiResponses(value = {
+            @ApiResponse(code = 401, message = "Unauthorized"),
+            @ApiResponse(code = 400, message = "Invalid API key supplied"),
+            @ApiResponse(code = 404, message = "No Team for the given API key found")
+    })
+    public Response getSelf() {
+        if (Config.getInstance().getPropertyAsBoolean(Config.AlpineKey.ENFORCE_AUTHENTICATION)) {
+            try (var qm = new QueryManager()) {
+                if (isApiKey()) {
+                    final var apiKey = qm.getApiKey(((ApiKey)getPrincipal()).getKey());
+                    final var team = apiKey.getTeams().stream().findFirst();
+                    if (team.isPresent()) {
+                        return Response.ok(new TeamSelfResponse(team.get())).build();
+                    } else {
+                        return Response.status(Response.Status.NOT_FOUND).entity("No Team for the given API key found.").build();
+                    }
+                } else {
+                    return Response.status(Response.Status.BAD_REQUEST).entity("Invalid API key supplied.").build();
+                }
+            }
+        }
+        // Authentication is not enabled, but we need to return a positive response without any principal data.
+        return Response.ok().build();
+    }
 }

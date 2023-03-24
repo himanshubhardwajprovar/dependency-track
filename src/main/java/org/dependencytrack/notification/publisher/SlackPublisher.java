@@ -19,17 +19,21 @@
 package org.dependencytrack.notification.publisher;
 
 import alpine.notification.Notification;
-import com.mitchellbosecke.pebble.PebbleEngine;
-import com.mitchellbosecke.pebble.template.PebbleTemplate;
+import io.pebbletemplates.pebble.PebbleEngine;
+
 import javax.json.JsonObject;
 
 public class SlackPublisher extends AbstractWebhookPublisher implements Publisher {
 
     private static final PebbleEngine ENGINE = new PebbleEngine.Builder().defaultEscapingStrategy("json").build();
-    private static final PebbleTemplate TEMPLATE = ENGINE.getTemplate("templates/notification/publisher/slack.peb");
 
     public void inform(final Notification notification, final JsonObject config) {
-        publish(DefaultNotificationPublishers.SLACK.getPublisherName(), TEMPLATE, notification, config);
+        publish(DefaultNotificationPublishers.SLACK.getPublisherName(), getTemplate(config), notification, config);
+    }
+
+    @Override
+    public PebbleEngine getTemplateEngine() {
+        return ENGINE;
     }
 
 }

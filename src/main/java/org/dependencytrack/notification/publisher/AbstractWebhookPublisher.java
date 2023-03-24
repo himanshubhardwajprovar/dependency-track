@@ -18,43 +18,77 @@
  */
 package org.dependencytrack.notification.publisher;
 
-import alpine.logging.Logger;
 import alpine.notification.Notification;
-import com.mitchellbosecke.pebble.template.PebbleTemplate;
-import kong.unirest.HttpResponse;
-import kong.unirest.JsonNode;
-import kong.unirest.UnirestInstance;
-import org.dependencytrack.common.UnirestFactory;
+import io.pebbletemplates.pebble.template.PebbleTemplate;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.util.EntityUtils;
+import org.dependencytrack.common.HttpClientPool;
+import org.dependencytrack.exception.PublisherException;
+import org.dependencytrack.util.HttpUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.json.JsonObject;
+import java.io.IOException;
 
 public abstract class AbstractWebhookPublisher implements Publisher {
-
     public void publish(final String publisherName, final PebbleTemplate template, final Notification notification, final JsonObject config) {
-        final Logger logger = Logger.getLogger(this.getClass());
-        logger.debug("Preparing to publish notification");
+        final Logger logger = LoggerFactory.getLogger(getClass());
+        logger.debug("Preparing to publish " + publisherName + " notification");
         if (config == null) {
             logger.warn("No configuration found. Skipping notification.");
             return;
         }
-        final String destination = config.getString("destination");
+        final String destination = getDestinationUrl(config);
         final String content = prepareTemplate(notification, template);
         if (destination == null || content == null) {
             logger.warn("A destination or template was not found. Skipping notification");
             return;
         }
-
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
-        final HttpResponse<JsonNode> response = ui.post(destination)
-                .header("content-type", "application/json")
-                .header("accept", "application/json")
-                .body(content)
-                .asJson();
-
-        if (response.getStatus() < 200 || response.getStatus() > 299) {
-            logger.error("An error was encountered publishing notification to " + publisherName);
-            logger.error("HTTP Status : " + response.getStatus() + " " + response.getStatusText());
-            logger.error("Destination: " + destination);
-            logger.debug(content);
+        final String mimeType = getTemplateMimeType(config);
+        var request = new HttpPost(destination);
+        request.addHeader("content-type", mimeType);
+        request.addHeader("accept", mimeType);
+        final BasicAuthCredentials credentials;
+        try {
+            credentials = getBasicAuthCredentials();
+        } catch (PublisherException e) {
+            logger.warn("An error occurred during the retrieval of credentials needed for notification publication. Skipping notification", e);
+            return;
         }
+        if (credentials != null) {
+            request.addHeader("Authorization", HttpUtil.basicAuthHeaderValue(credentials.user(), credentials.password()));
+        }
+
+        try {
+            request.setEntity(new StringEntity(content));
+            try (final CloseableHttpResponse response = HttpClientPool.getClient().execute(request)) {
+                if (response.getStatusLine().getStatusCode() < 200 || response.getStatusLine().getStatusCode() >= 300) {
+                    logger.error("An error was encountered publishing notification to " + publisherName +
+                            "with HTTP Status : " + response.getStatusLine().getStatusCode() + " " + response.getStatusLine().getReasonPhrase() +
+                            " Destination: " + destination + " Response: " + EntityUtils.toString(response.getEntity()));
+                    logger.debug(content);
+                }
+            }
+        } catch (IOException ex) {
+            handleRequestException(logger, ex);
+        }
+    }
+
+    protected String getDestinationUrl(final JsonObject config) {
+        return config.getString(CONFIG_DESTINATION);
+    }
+
+    protected BasicAuthCredentials getBasicAuthCredentials() {
+        return null;
+    }
+
+    protected record BasicAuthCredentials(String user, String password) {
+    }
+
+    protected void handleRequestException(final Logger logger, final Exception e) {
+        logger.error("Request failure", e);
     }
 }

@@ -18,8 +18,8 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.filters.ApiFilter;
-import alpine.filters.AuthenticationFilter;
+import alpine.server.filters.ApiFilter;
+import alpine.server.filters.AuthenticationFilter;
 import alpine.model.IConfigProperty;
 import org.dependencytrack.ResourceTest;
 import org.dependencytrack.model.Project;
@@ -31,6 +31,7 @@ import org.glassfish.jersey.test.DeploymentContext;
 import org.glassfish.jersey.test.ServletDeploymentContext;
 import org.junit.Assert;
 import org.junit.Test;
+
 import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.ws.rs.client.Entity;
@@ -211,8 +212,7 @@ public class ProjectPropertyResourceTest extends ResourceTest {
         Assert.assertEquals("The project could not be found.", body);
     }
 
-    //@Test
-    // TODO: The workaround for Jersey (DELETE with body) no longer throws an exception, but produces a 400. Unable to test at this time
+    @Test
     public void deletePropertyTest() {
         Project project = qm.createProject("Acme Example", null, "1.0", null, null, null, true, false);
         ProjectProperty property = qm.createProjectProperty(project, "mygroup", "prop1", "value1", IConfigProperty.PropertyType.STRING, null);

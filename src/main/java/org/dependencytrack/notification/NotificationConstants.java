@@ -23,6 +23,8 @@ public class NotificationConstants {
     public static class Title {
         public static final String NOTIFICATION_TEST = "Notification Test";
         public static final String NVD_MIRROR = "NVD Mirroring";
+        public static final String GITHUB_ADVISORY_MIRROR = "GitHub Advisory Mirroring";
+        public static final String EPSS_MIRROR = "EPSS Mirroring";
         public static final String NPM_ADVISORY_MIRROR = "NPM Advisory Mirroring";
         public static final String VULNDB_MIRROR = "VulnDB Mirroring";
         public static final String COMPONENT_INDEXER = "Component Indexing Service";
@@ -46,13 +48,19 @@ public class NotificationConstants {
         public static final String ANALYSIS_DECISION_NOT_SET = "Analysis Decision: Marking Finding as NOT SET";
         public static final String ANALYSIS_DECISION_SUPPRESSED = "Analysis Decision: Finding Suppressed";
         public static final String ANALYSIS_DECISION_UNSUPPRESSED = "Analysis Decision: Finding UnSuppressed";
+        public static final String ANALYSIS_DECISION_RESOLVED = "Analysis Decision: Finding Resolved";
         public static final String VIOLATIONANALYSIS_DECISION_APPROVED = "Violation Analysis Decision: Approved";
         public static final String VIOLATIONANALYSIS_DECISION_REJECTED = "Violation Analysis Decision: Rejected";
         public static final String VIOLATIONANALYSIS_DECISION_NOT_SET = "Violation Analysis Decision: Marking Finding as NOT SET";
         public static final String VIOLATIONANALYSIS_DECISION_SUPPRESSED = "Violation Analysis Decision: Violation Suppressed";
         public static final String VIOLATIONANALYSIS_DECISION_UNSUPPRESSED = "Violation Analysis Decision: Violation UnSuppressed";
+        public static final String POLICY_VIOLATION = "Policy Violation";
         public static final String BOM_CONSUMED = "Bill of Materials Consumed";
         public static final String BOM_PROCESSED = "Bill of Materials Processed";
+        public static final String BOM_PROCESSING_FAILED = "Bill of Materials Processing Failed";
+        public static final String VEX_CONSUMED = "Vulnerability Exploitability Exchange (VEX) Consumed";
+        public static final String VEX_PROCESSED = "Vulnerability Exploitability Exchange (VEX) Processed";
+        public static final String PROJECT_CREATED = "Project Added";
     }
 
 }

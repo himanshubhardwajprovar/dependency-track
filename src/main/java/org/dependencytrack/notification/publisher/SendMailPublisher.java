@@ -18,31 +18,42 @@
  */
 package org.dependencytrack.notification.publisher;
 
-import alpine.crypto.DataEncryption;
-import alpine.logging.Logger;
-import alpine.mail.SendMail;
+import alpine.common.logging.Logger;
+import alpine.common.util.BooleanUtil;
 import alpine.model.ConfigProperty;
+import alpine.model.LdapUser;
+import alpine.model.ManagedUser;
+import alpine.model.OidcUser;
+import alpine.model.Team;
 import alpine.notification.Notification;
-import alpine.util.BooleanUtil;
-import com.mitchellbosecke.pebble.PebbleEngine;
-import com.mitchellbosecke.pebble.template.PebbleTemplate;
+import alpine.security.crypto.DataEncryption;
+import alpine.server.mail.SendMail;
+import io.pebbletemplates.pebble.PebbleEngine;
+import io.pebbletemplates.pebble.template.PebbleTemplate;
 import org.dependencytrack.persistence.QueryManager;
+
 import javax.json.JsonObject;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_ENABLED;
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_FROM_ADDR;
+import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_PASSWORD;
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_SERVER_HOSTNAME;
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_SERVER_PORT;
-import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_USERNAME;
-import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_PASSWORD;
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_SSLTLS;
 import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_TRUSTCERT;
+import static org.dependencytrack.model.ConfigPropertyConstants.EMAIL_SMTP_USERNAME;
 
 public class SendMailPublisher implements Publisher {
 
     private static final Logger LOGGER = Logger.getLogger(SendMailPublisher.class);
     private static final PebbleEngine ENGINE = new PebbleEngine.Builder().newLineTrimming(false).build();
-    private static final PebbleTemplate TEMPLATE = ENGINE.getTemplate("templates/notification/publisher/email.peb");
 
     public void inform(final Notification notification, final JsonObject config) {
         if (config == null) {
@@ -50,12 +61,26 @@ public class SendMailPublisher implements Publisher {
             return;
         }
         final String[] destinations = parseDestination(config);
-        final String content = prepareTemplate(notification, TEMPLATE);
+        sendNotification(notification, config, destinations);
+    }
+
+    public void inform(final Notification notification, final JsonObject config, List<Team> teams) {
+        if (config == null) {
+            LOGGER.warn("No configuration found. Skipping notification.");
+            return;
+        }
+        final String[] destinations = parseDestination(config, teams);
+        sendNotification(notification, config, destinations);
+    }
+
+    private void sendNotification(Notification notification, JsonObject config, String[] destinations) {
+        PebbleTemplate template = getTemplate(config);
+        String mimeType = getTemplateMimeType(config);
+        final String content = prepareTemplate(notification, template);
         if (destinations == null || content == null) {
             LOGGER.warn("A destination or template was not found. Skipping notification");
             return;
         }
-
         try (QueryManager qm = new QueryManager()) {
             final ConfigProperty smtpEnabled = qm.getConfigProperty(EMAIL_SMTP_ENABLED.getGroupName(), EMAIL_SMTP_ENABLED.getPropertyName());
             final ConfigProperty smtpFrom = qm.getConfigProperty(EMAIL_SMTP_FROM_ADDR.getGroupName(), EMAIL_SMTP_FROM_ADDR.getPropertyName());
@@ -67,6 +92,7 @@ public class SendMailPublisher implements Publisher {
             final ConfigProperty smtpTrustCert = qm.getConfigProperty(EMAIL_SMTP_TRUSTCERT.getGroupName(), EMAIL_SMTP_TRUSTCERT.getPropertyName());
 
             if (!BooleanUtil.valueOf(smtpEnabled.getPropertyValue())) {
+                LOGGER.warn("SMTP is not enabled");
                 return; // smtp is not enabled
             }
             final boolean smtpAuth = (smtpUser.getPropertyValue() != null && smtpPass.getPropertyValue() != null);
@@ -76,6 +102,7 @@ public class SendMailPublisher implements Publisher {
                     .to(destinations)
                     .subject("[Dependency-Track] " + notification.getTitle())
                     .body(content)
+                    .bodyMimeType(mimeType)
                     .host(smtpHostname.getPropertyValue())
                     .port(Integer.valueOf(smtpPort.getPropertyValue()))
                     .username(smtpUser.getPropertyValue())
@@ -89,12 +116,32 @@ public class SendMailPublisher implements Publisher {
         }
   }
 
-
-  static String[] parseDestination(final JsonObject config) {
-    String destinationString = config.getString("destination");
-    if ((destinationString == null) || destinationString.isEmpty()) {
-      return null;
+    @Override
+    public PebbleEngine getTemplateEngine() {
+        return ENGINE;
     }
-    return destinationString.split(",");
-  }
+
+    static String[] parseDestination(final JsonObject config) {
+        String destinationString = config.getString("destination");
+        if ((destinationString == null) || destinationString.isEmpty()) {
+          return null;
+        }
+        return destinationString.split(",");
+    }
+
+    static String[] parseDestination(final JsonObject config, final List<Team> teams) {
+        String[] destination = teams.stream().flatMap(
+                team -> Stream.of(
+                                Arrays.stream(config.getString("destination").split(",")).filter(Predicate.not(String::isEmpty)),
+                                Optional.ofNullable(team.getManagedUsers()).orElseGet(Collections::emptyList).stream().map(ManagedUser::getEmail).filter(Objects::nonNull),
+                                Optional.ofNullable(team.getLdapUsers()).orElseGet(Collections::emptyList).stream().map(LdapUser::getEmail).filter(Objects::nonNull),
+                                Optional.ofNullable(team.getOidcUsers()).orElseGet(Collections::emptyList).stream().map(OidcUser::getEmail).filter(Objects::nonNull)
+                        )
+                        .reduce(Stream::concat)
+                        .orElseGet(Stream::empty)
+                )
+                .distinct()
+                .toArray(String[]::new);
+        return destination.length == 0 ? null : destination;
+    }
 }

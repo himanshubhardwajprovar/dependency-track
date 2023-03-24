@@ -18,10 +18,10 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.AuthenticationNotRequired;
+import alpine.common.util.BooleanUtil;
 import alpine.model.ConfigProperty;
-import alpine.resources.AlpineResource;
-import alpine.util.BooleanUtil;
+import alpine.server.auth.AuthenticationNotRequired;
+import alpine.server.resources.AlpineResource;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
@@ -31,6 +31,7 @@ import org.dependencytrack.model.Project;
 import org.dependencytrack.model.ProjectMetrics;
 import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.resources.v1.misc.Badger;
+
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
@@ -79,7 +80,7 @@ public class BadgeResource extends AlpineResource {
                 if (project != null) {
                     final ProjectMetrics metrics = qm.getMostRecentProjectMetrics(project);
                     final Badger badger = new Badger();
-                    return Response.ok(badger.generate(metrics)).build();
+                    return Response.ok(badger.generateVulnerabilities(metrics)).build();
                 } else {
                     return Response.status(Response.Status.NOT_FOUND).entity("The project could not be found.").build();
                 }
@@ -113,7 +114,73 @@ public class BadgeResource extends AlpineResource {
                 if (project != null) {
                     final ProjectMetrics metrics = qm.getMostRecentProjectMetrics(project);
                     final Badger badger = new Badger();
-                    return Response.ok(badger.generate(metrics)).build();
+                    return Response.ok(badger.generateVulnerabilities(metrics)).build();
+                } else {
+                    return Response.status(Response.Status.NOT_FOUND).entity("The project could not be found.").build();
+                }
+            } else {
+                return Response.status(Response.Status.NO_CONTENT).build();
+            }
+        }
+    }
+
+    @GET
+    @Path("/violations/project/{uuid}")
+    @Produces(SVG_MEDIA_TYPE)
+    @ApiOperation(
+            value = "Returns a policy violations badge for a specific project",
+            response = String.class
+    )
+    @ApiResponses(value = {
+            @ApiResponse(code = 204, message = "Badge support is disabled. No content will be returned."),
+            @ApiResponse(code = 401, message = "Unauthorized"),
+            @ApiResponse(code = 404, message = "The project could not be found")
+    })
+    @AuthenticationNotRequired
+    public Response getProjectPolicyViolationsBadge(
+            @ApiParam(value = "The UUID of the project to retrieve a badge for", required = true)
+            @PathParam("uuid") String uuid) {
+        try (QueryManager qm = new QueryManager()) {
+            if (isBadgeSupportEnabled(qm)) {
+                final Project project = qm.getObjectByUuid(Project.class, uuid);
+                if (project != null) {
+                    final ProjectMetrics metrics = qm.getMostRecentProjectMetrics(project);
+                    final Badger badger = new Badger();
+                    return Response.ok(badger.generateViolations(metrics)).build();
+                } else {
+                    return Response.status(Response.Status.NOT_FOUND).entity("The project could not be found.").build();
+                }
+            } else {
+                return Response.status(Response.Status.NO_CONTENT).build();
+            }
+        }
+    }
+
+    @GET
+    @Path("/violations/project/{name}/{version}")
+    @Produces(SVG_MEDIA_TYPE)
+    @ApiOperation(
+            value = "Returns a policy violations badge for a specific project",
+            response = String.class
+    )
+    @ApiResponses(value = {
+            @ApiResponse(code = 204, message = "Badge support is disabled. No content will be returned."),
+            @ApiResponse(code = 401, message = "Unauthorized"),
+            @ApiResponse(code = 404, message = "The project could not be found")
+    })
+    @AuthenticationNotRequired
+    public Response getProjectPolicyViolationsBadge(
+            @ApiParam(value = "The name of the project to query on", required = true)
+            @PathParam("name") String name,
+            @ApiParam(value = "The version of the project to query on", required = true)
+            @PathParam("version") String version) {
+        try (QueryManager qm = new QueryManager()) {
+            if (isBadgeSupportEnabled(qm)) {
+                final Project project = qm.getProject(name, version);
+                if (project != null) {
+                    final ProjectMetrics metrics = qm.getMostRecentProjectMetrics(project);
+                    final Badger badger = new Badger();
+                    return Response.ok(badger.generateViolations(metrics)).build();
                 } else {
                     return Response.status(Response.Status.NOT_FOUND).entity("The project could not be found.").build();
                 }

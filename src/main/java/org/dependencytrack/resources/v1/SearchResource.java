@@ -18,22 +18,28 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.PermissionRequired;
-import alpine.resources.AlpineResource;
+import alpine.server.auth.PermissionRequired;
+import alpine.server.resources.AlpineResource;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiResponse;
 import io.swagger.annotations.ApiResponses;
 import io.swagger.annotations.Authorization;
+import org.apache.commons.lang3.StringUtils;
 import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.search.FuzzyVulnerableSoftwareSearchManager;
 import org.dependencytrack.search.SearchManager;
 import org.dependencytrack.search.SearchResult;
+
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.util.Collections;
+import java.util.Set;
 
 /**
  * JAX-RS resources for processing search requests.
@@ -151,4 +157,51 @@ public class SearchResource extends AlpineResource {
         return Response.ok(searchResult).build();
     }
 
+    @Path("/vulnerablesoftware")
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    @ApiOperation(
+            value = "Processes and returns search results",
+            response = SearchResult.class,
+            notes = "Preferred search endpoint"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(code = 401, message = "Unauthorized")
+    })
+    @PermissionRequired(Permissions.Constants.VIEW_PORTFOLIO)
+    public Response vulnerableSoftwareSearch(@QueryParam("query") String query, @QueryParam("cpe") String cpe) {
+        if (StringUtils.isNotBlank(cpe)) {
+            final FuzzyVulnerableSoftwareSearchManager searchManager = new FuzzyVulnerableSoftwareSearchManager(false);
+            final SearchResult searchResult = searchManager.searchIndex(FuzzyVulnerableSoftwareSearchManager.getLuceneCpeRegexp(cpe));
+            return Response.ok(searchResult).build();
+        } else {
+            final SearchManager searchManager = new SearchManager();
+            final SearchResult searchResult = searchManager.searchVulnerableSoftwareIndex(query, 1000);
+            return Response.ok(searchResult).build();
+        }
+    }
+
+    @Path("/reindex")
+    @POST
+    @Produces(MediaType.APPLICATION_JSON)
+    @ApiOperation(
+            value = "Rebuild lucene indexes for search operations"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(code = 401, message = "Unauthorized"),
+            @ApiResponse(code = 400, message = "No valid index type was provided")
+    })
+    @PermissionRequired(Permissions.Constants.SYSTEM_CONFIGURATION)
+    public Response reindex(@QueryParam("type") Set<String> type) {
+        if (type == null || type.isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("No valid index type was provided").build();
+        }
+        try {
+            final SearchManager searchManager = new SearchManager();
+            String chainIdentifier = searchManager.reindex(type);
+            return Response.ok(Collections.singletonMap("token", chainIdentifier)).build();
+        } catch (IllegalArgumentException exception) {
+            return Response.status(Response.Status.BAD_REQUEST).entity(exception.getMessage()).build();
+        }
+    }
 }

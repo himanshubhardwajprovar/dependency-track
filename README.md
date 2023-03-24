@@ -11,10 +11,12 @@
 [![Twitter](https://img.shields.io/twitter/follow/dependencytrack.svg?label=Follow&style=social)](https://twitter.com/dependencytrack)
 [![Downloads](https://img.shields.io/github/downloads/DependencyTrack/dependency-track/total.svg)](https://github.com/DependencyTrack/dependency-track/releases)
 [![Latest](https://img.shields.io/github/release/DependencyTrack/dependency-track.svg)](https://github.com/DependencyTrack/dependency-track/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/owasp/dependency-track.svg)](https://hub.docker.com/r/owasp/dependency-track/)
+[![Pulls - API Server](https://img.shields.io/docker/pulls/dependencytrack/apiserver.svg?label=Docker%20Pulls%20%28API%20Server%29)](https://hub.docker.com/r/dependencytrack/apiserver/)
+[![Pulls - Frontend](https://img.shields.io/docker/pulls/dependencytrack/frontend.svg?label=Docker%20Pulls%20%28Frontend%29)](https://hub.docker.com/r/dependencytrack/frontend/)
+[![Pulls - Bundled](https://img.shields.io/docker/pulls/dependencytrack/bundled.svg?label=Docker%20Pulls%20%28Bundled%29)](https://hub.docker.com/r/dependencytrack/bundled/)
+[![Pulls - Legacy](https://img.shields.io/docker/pulls/owasp/dependency-track.svg?label=Docker%20Pulls%20%28OWASP%20Legacy%29)](https://hub.docker.com/r/owasp/dependency-track/)
 
-
-![logo preview](https://raw.githubusercontent.com/DependencyTrack/branding/master/dt-logo-black-text.svg?sanitize=true)
+![logo preview](https://raw.githubusercontent.com/DependencyTrack/branding/master/dt-logo.svg?sanitize=true)
 
 
 Dependency-Track is an intelligent [Component Analysis] platform that allows organizations to
@@ -26,17 +28,12 @@ Dependency-Track monitors component usage across all versions of every applicati
 proactively identify risk across an organization. The platform has an API-first design and is ideal for use in
 CI/CD environments.
 
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=cQuk6jKTrTs">
-    <img style="border:0" width="720" height="405" src="https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/promo-glitch.png">
-  </a>
-</p>
-
-
 ## Ecosystem Overview
-![alt text](https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/integrations.png)
+![alt text](./docs/images/integrations.png)
 
 ## Features
+* Consumes and produces [CycloneDX] Software Bill of Materials (SBOM)
+* Consumes and produces [CycloneDX Vulnerability Exploitability Exchange (VEX)](https://cyclonedx.org/capabilities/vex/)
 * Component support for:
   * Applications
   * Libraries
@@ -46,6 +43,7 @@ CI/CD environments.
   * Firmware
   * Files
   * Hardware
+  * Services
 * Tracks component usage across every application in an organizations portfolio
 * Quickly identify what is affected, and where
 * Identifies multiple forms of risk including
@@ -56,14 +54,18 @@ CI/CD environments.
   * More coming soon...
 * Integrates with multiple sources of vulnerability intelligence including:
   * [National Vulnerability Database] (NVD)
-  * [NPM Public Advisories]
+  * [GitHub Advisories]
   * [Sonatype OSS Index]
+  * [Snyk]
+  * [OSV]
   * [VulnDB] from [Risk Based Security]
   * More coming soon.
+* Helps to prioritize mitigation by incorporating support for the [Exploit Prediction Scoring System (EPSS)](https://www.first.org/epss/)
+* Maintain a private vulnerability database of vulnerability components
 * Robust policy engine with support for global and per-project policies
   * Security risk and compliance
   * License risk and compliance
-  * Operational risk and compliance  
+  * Operational risk and compliance
 * Ecosystem agnostic with built-in repository support for:
   * Cargo (Rust)
   * Composer (PHP)
@@ -71,9 +73,10 @@ CI/CD environments.
   * Hex (Erlang/Elixir)
   * Maven (Java)
   * NPM (Javascript)
+  * CPAN (Perl)
   * NuGet (.NET)
   * Pypi (Python)
-  * More coming soon.  
+  * More coming soon.
 * Identifies APIs and external service components including:
   * Service provider
   * Endpoint URIs
@@ -82,9 +85,8 @@ CI/CD environments.
   * Trust boundary traversal
   * Authentication requirements
 * Includes a comprehensive auditing workflow for triaging results
-* Configurable notifications supporting Slack, Microsoft Teams, Webhooks, and Email
+* Configurable notifications supporting Slack, Microsoft Teams, Mattermost, Webhooks, Webex, Email and Jira
 * Supports standardized SPDX license ID’s and tracks license use by component
-* Supports importing [CycloneDX] Software Bill of Materials (SBOM)
 * Easy to read metrics for components, projects, and portfolio
 * Native support for Kenna Security, Fortify SSC, ThreadFix, and DefectDojo
 * API-first design facilitates easy integration with other systems
@@ -96,7 +98,7 @@ CI/CD environments.
 
 <hr>
 
-![alt text](https://raw.githubusercontent.com/DependencyTrack/dependency-track/master/docs/images/screenshots/dashboard.png)
+![alt text](./docs/images/screenshots/dashboard.png)
 
 ### Quickstart (Docker Compose)
 
@@ -138,15 +140,13 @@ docker run -d -m 8192m -p 8080:8080 --name dependency-track -v dependency-track:
 
 ## Distributions
 
-Dependency-Track has four distribution variants. They are:
+Dependency-Track has three distribution variants. They are:
 
-| Package | Package Format | Recommended | Supported | Docker | Download |
-| :---------- | :---------- | :---------: | :---------: | :---------: | :---------: |
-| API Server | Executable WAR | ✅ | ✅ | ✅ | ✅ | 
-| Frontend | Single Page Application | ✅ | ✅ | ✅ | ✅ |
-| Bundled | Executable WAR | ❌ | ☑️ | ✅ | ✅ |
-| Traditional WAR | WAR | ❌ | ❌ | ❌ | ✅ |
-
+| Package    | Package Format          | Recommended | Supported | Docker | Download |
+|:-----------|:------------------------|:-----------:|:---------:|:------:|:--------:|
+| API Server | Executable WAR          |      ✅      |     ✅     |   ✅    |    ✅     |
+| Frontend   | Single Page Application |      ✅      |     ✅     |   ✅    |    ✅     |
+| Bundled    | Executable WAR          |      ❌      |    ☑️     |   ✅    |    ✅     |
 
 #### API Server
 
@@ -155,7 +155,7 @@ interface. This variant is new as of Dependency-Track v4.0.
 
 #### Frontend
 
-The Frontend is the user interface that is accessible in a web browser. The Frontend is a Single Page Application (SPA)
+The [Frontend](https://github.com/DependencyTrack/frontend) is the user interface that is accessible in a web browser. The Frontend is a Single Page Application (SPA)
 that can be deployed independently of the Dependency-Track API Server. This variant is new as of Dependency-Track v3.8.
 
 #### Bundled
@@ -169,35 +169,26 @@ deprecated and will be discontinued in a future release.
 The Traditional variant combines the API Server and the Frontend user interface and must be deployed to a Servlet
 container. This variant is not supported, deprecated, and will be discontinued in a future release.
 
-
 ## Deploying on Kubernetes with Helm
 You can install on Kubernetes using the [community-maintained chart](https://github.com/evryfs/helm-charts/tree/master/charts/dependency-track) like this:
 
+Helm v3:
 ```shell
 helm repo add evryfs-oss https://evryfs.github.io/helm-charts/
-helm install evryfs-oss/dependency-track --name dependency-track --namespace dependency-track
+helm install dependency-track evryfs-oss/dependency-track --namespace dependency-track --create-namespace
 ```
+
+Helm v2:
+```shell
+helm repo add evryfs-oss https://evryfs.github.io/helm-charts/
+helm install evryfs-oss/dependency-track --name dependency-track --namespace dependency-track --create-namespace
+```
+
 by default, it will install PostgreSQL and use persistent volume claims for the data-directory used for vulnerability feeds.
 
+## Contributing
 
-## Compiling From Sources (optional)
-To create the API Server executable WAR that is ready to launch:
-
-```shell
-mvn clean package -P embedded-jetty
-```
-
-To create the API Server executable WAR that is ready to be deployed in a Docker container:
-
-```shell
-mvn clean package -P embedded-jetty -Dlogback.configuration.file=src/main/docker/logback.xml
-```
-
-To create the Bundled (API Server + Frontend) executable WAR that is ready to be deployed in a Docker container:
-
-```shell
-mvn clean package -P embedded-jetty -P bundle-ui -Dlogback.configuration.file=src/main/docker/logback.xml
-```
+Interested in contributing to Dependency-Track? Please check [`CONTRIBUTING.md`](./CONTRIBUTING.md) to see how you can help!
 
 ## Resources
 
@@ -212,7 +203,6 @@ mvn clean package -P embedded-jetty -P bundle-ui -Dlogback.configuration.file=sr
 * Slack: <https://dependencytrack.org/slack> (Invite:  <https://dependencytrack.org/slack/invite>)
 * Discussion (Groups.io): <https://dependencytrack.org/discussion>
 
-
 ## Copyright & License
 Dependency-Track is Copyright (c) Steve Springett. All Rights Reserved.
 
@@ -223,8 +213,10 @@ Dependency-Track makes use of several other open source libraries. Please see
 the [notices] file for more information.
 
   [National Vulnerability Database]: https://nvd.nist.gov
-  [NPM Public Advisories]: https://www.npmjs.com/advisories
+  [GitHub Advisories]: https://www.github.com/advisories
   [Sonatype OSS Index]: https://ossindex.sonatype.org
+  [Snyk]: https://snyk.io
+  [OSV]: https://osv.dev
   [VulnDB]: https://vulndb.cyberriskanalytics.com
   [Risk Based Security]: https://www.riskbasedsecurity.com
   [Component Analysis]: https://owasp.org/www-community/Component_Analysis

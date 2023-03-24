@@ -21,6 +21,7 @@ package org.dependencytrack.model;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Element;
 import javax.jdo.annotations.Extension;
@@ -49,6 +50,7 @@ import java.util.UUID;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Index(name = "VULNERABLESOFTWARE_CPE23_VERSION_RANGE_IDX", members = {"cpe23", "versionEndExcluding", "versionEndIncluding", "versionStartExcluding", "versionStartIncluding"})
 @Index(name = "VULNERABLESOFTWARE_PART_VENDOR_PRODUCT_IDX", members = {"part", "vendor", "product"})
+@Index(name = "VULNERABLESOFTWARE_CPE_PURL_PARTS_IDX", members = {"part", "vendor", "product", "purlType", "purlNamespace", "purlName"})
 @Index(name = "VULNERABLESOFTWARE_PURL_VERSION_RANGE_IDX", members = {"purl", "versionEndExcluding", "versionEndIncluding", "versionStartExcluding", "versionStartIncluding"})
 @Index(name = "VULNERABLESOFTWARE_PURL_TYPE_NS_NAME_IDX", members = {"purlType", "purlNamespace", "purlName"})
 public class VulnerableSoftware implements ICpe, Serializable {
@@ -170,6 +172,8 @@ public class VulnerableSoftware implements ICpe, Serializable {
     @Unique(name = "VULNERABLESOFTWARE_UUID_IDX")
     @Column(name = "UUID", jdbcType = "VARCHAR", length = 36, allowsNull = "false")
     private UUID uuid;
+
+    private transient List<AffectedVersionAttribution> affectedVersionAttributions;
 
     public long getId() {
         return id;
@@ -400,5 +404,12 @@ public class VulnerableSoftware implements ICpe, Serializable {
 
     public void setUuid(UUID uuid) {
         this.uuid = uuid;
+    }
+
+    public List<AffectedVersionAttribution> getAffectedVersionAttributions() {
+        return affectedVersionAttributions;
+    }
+    public void setAffectedVersionAttributions(List<AffectedVersionAttribution> affectedVersionAttributions) {
+        this.affectedVersionAttributions = affectedVersionAttributions;
     }
 }

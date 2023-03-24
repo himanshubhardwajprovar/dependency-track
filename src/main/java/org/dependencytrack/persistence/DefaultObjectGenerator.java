@@ -18,36 +18,25 @@
  */
 package org.dependencytrack.persistence;
 
-import alpine.auth.PasswordService;
-import alpine.event.framework.Event;
-import alpine.logging.Logger;
-import alpine.model.ManagedUser;
-import alpine.model.Permission;
-import alpine.model.Team;
-import org.apache.commons.io.FileUtils;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
 import org.dependencytrack.RequirementsVerifier;
 import org.dependencytrack.auth.Permissions;
-import org.dependencytrack.event.IndexEvent;
-import org.dependencytrack.model.Component;
 import org.dependencytrack.model.ConfigPropertyConstants;
 import org.dependencytrack.model.License;
-import org.dependencytrack.model.NotificationPublisher;
-import org.dependencytrack.model.Project;
 import org.dependencytrack.model.RepositoryType;
-import org.dependencytrack.model.Vulnerability;
 import org.dependencytrack.notification.publisher.DefaultNotificationPublishers;
 import org.dependencytrack.parser.spdx.json.SpdxLicenseDetailParser;
 import org.dependencytrack.persistence.defaults.DefaultLicenseGroupImporter;
-import org.dependencytrack.search.IndexManager;
-import javax.servlet.ServletContextEvent;
-import javax.servlet.ServletContextListener;
-import java.io.File;
-import java.io.IOException;
-import java.net.URLDecoder;
-import java.util.ArrayList;
-import java.util.List;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
+import org.dependencytrack.util.NotificationUtil;
+import alpine.common.logging.Logger;
+import alpine.model.ManagedUser;
+import alpine.model.Permission;
+import alpine.model.Team;
+import alpine.server.auth.PasswordService;
 
 /**
  * Creates default objects on an empty database.
@@ -69,30 +58,13 @@ public class DefaultObjectGenerator implements ServletContextListener {
             return;
         }
 
-        if (!IndexManager.exists(IndexManager.IndexType.LICENSE)) {
-            LOGGER.info("Dispatching event to reindex licenses");
-            Event.dispatch(new IndexEvent(IndexEvent.Action.REINDEX, License.class));
-        }
-        if (!IndexManager.exists(IndexManager.IndexType.PROJECT)) {
-            LOGGER.info("Dispatching event to reindex projects");
-            Event.dispatch(new IndexEvent(IndexEvent.Action.REINDEX, Project.class));
-        }
-        if (!IndexManager.exists(IndexManager.IndexType.COMPONENT)) {
-            LOGGER.info("Dispatching event to reindex components");
-            Event.dispatch(new IndexEvent(IndexEvent.Action.REINDEX, Component.class));
-        }
-        if (!IndexManager.exists(IndexManager.IndexType.VULNERABILITY)) {
-            LOGGER.info("Dispatching event to reindex vulnerabilities");
-            Event.dispatch(new IndexEvent(IndexEvent.Action.REINDEX, Vulnerability.class));
-        }
-
         loadDefaultPermissions();
         loadDefaultPersonas();
         loadDefaultLicenses();
         loadDefaultLicenseGroups();
         loadDefaultRepositories();
-        loadDefaultNotificicationPublishers();
         loadDefaultConfigProperties();
+        loadDefaultNotificationPublishers();
 
         try {
             new CweImporter().processCweDefinitions();
@@ -234,10 +206,11 @@ public class DefaultObjectGenerator implements ServletContextListener {
     private void loadDefaultRepositories() {
         try (QueryManager qm = new QueryManager()) {
             LOGGER.info("Synchronizing default repositories to datastore");
+            qm.createRepository(RepositoryType.CPAN, "cpan-public-registry", "https://fastapi.metacpan.org/v1/", true, false);
             qm.createRepository(RepositoryType.GEM, "rubygems.org", "https://rubygems.org/", true, false);
             qm.createRepository(RepositoryType.HEX, "hex.pm", "https://hex.pm/", true, false);
             qm.createRepository(RepositoryType.MAVEN, "central", "https://repo1.maven.org/maven2/", true, false);
-            qm.createRepository(RepositoryType.MAVEN, "atlassian-public", "https://maven.atlassian.com/content/repositories/atlassian-public/", true, false);
+            qm.createRepository(RepositoryType.MAVEN, "atlassian-public", "https://packages.atlassian.com/content/repositories/atlassian-public/", true, false);
             qm.createRepository(RepositoryType.MAVEN, "jboss-releases", "https://repository.jboss.org/nexus/content/repositories/releases/", true, false);
             qm.createRepository(RepositoryType.MAVEN, "clojars", "https://repo.clojars.org/", true, false);
             qm.createRepository(RepositoryType.MAVEN, "google-android", "https://maven.google.com/", true, false);
@@ -268,29 +241,12 @@ public class DefaultObjectGenerator implements ServletContextListener {
     /**
      * Loads the default notification publishers
      */
-    private void loadDefaultNotificicationPublishers() {
+    private void loadDefaultNotificationPublishers() {
         try (QueryManager qm = new QueryManager()) {
             LOGGER.info("Synchronizing notification publishers to datastore");
             for (final DefaultNotificationPublishers publisher : DefaultNotificationPublishers.values()) {
                 try {
-                    final File file = new File(URLDecoder.decode(this.getClass().getResource(publisher.getPublisherTemplateFile()).getFile(), UTF_8.name()));
-                    final String templateContent = FileUtils.readFileToString(file, UTF_8);
-                    final NotificationPublisher existingPublisher = qm.getDefaultNotificationPublisher(publisher.getPublisherClass());
-                    if (existingPublisher == null) {
-                        qm.createNotificationPublisher(
-                                publisher.getPublisherName(), publisher.getPublisherDescription(),
-                                publisher.getPublisherClass(), templateContent, publisher.getTemplateMimeType(),
-                                publisher.isDefaultPublisher()
-                        );
-                    } else {
-                        existingPublisher.setName(publisher.getPublisherName());
-                        existingPublisher.setDescription(publisher.getPublisherDescription());
-                        existingPublisher.setPublisherClass(publisher.getPublisherClass().getCanonicalName());
-                        existingPublisher.setTemplate(templateContent);
-                        existingPublisher.setTemplateMimeType(publisher.getTemplateMimeType());
-                        existingPublisher.setDefaultPublisher(publisher.isDefaultPublisher());
-                        qm.updateNotificationPublisher(existingPublisher);
-                    }
+                    NotificationUtil.loadDefaultNotificationPublishers(qm);
                 } catch (IOException e) {
                     LOGGER.error("An error occurred while synchronizing a default notification publisher", e);
                 }

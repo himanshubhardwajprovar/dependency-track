@@ -18,11 +18,16 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.filters.ApiFilter;
-import alpine.filters.AuthenticationFilter;
+import alpine.common.util.UuidUtil;
+import alpine.model.ConfigProperty;
+import alpine.server.filters.ApiFilter;
+import alpine.server.filters.AuthenticationFilter;
 import alpine.model.Team;
-import alpine.util.UuidUtil;
 import org.dependencytrack.ResourceTest;
+import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.model.ConfigPropertyConstants;
+import org.dependencytrack.model.Project;
+import org.dependencytrack.persistence.QueryManager;
 import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.servlet.ServletContainer;
@@ -30,6 +35,7 @@ import org.glassfish.jersey.test.DeploymentContext;
 import org.glassfish.jersey.test.ServletDeploymentContext;
 import org.junit.Assert;
 import org.junit.Test;
+
 import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.ws.rs.client.Entity;
@@ -85,6 +91,32 @@ public class TeamResourceTest extends ResourceTest {
         String body = getPlainTextBody(response);
         Assert.assertEquals("The team could not be found.", body);
     }
+    
+    @Test
+    public void getTeamSelfTest() {
+        initializeWithPermissions(Permissions.BOM_UPLOAD, Permissions.PROJECT_CREATION_UPLOAD);
+        var response = target(V1_TEAM + "/self").request().header(X_API_KEY, apiKey).get(Response.class);
+        Assert.assertEquals(200, response.getStatus());
+        final var json = parseJsonObject(response);
+        Assert.assertEquals(team.getName(), json.getString("name"));
+        Assert.assertEquals(team.getUuid().toString(), json.getString("uuid"));
+        final var permissions = json.getJsonArray("permissions");
+        Assert.assertEquals(2, permissions.size());
+        Assert.assertEquals(Permissions.BOM_UPLOAD.toString(), permissions.get(0).asJsonObject().getString("name"));
+        Assert.assertEquals(Permissions.PROJECT_CREATION_UPLOAD.toString(), permissions.get(1).asJsonObject().getString("name"));
+
+        // missing api-key
+        response = target(V1_TEAM + "/self").request().get(Response.class);
+        Assert.assertEquals(401, response.getStatus());
+
+        // wrong api-key
+        response = target(V1_TEAM + "/self").request().header(X_API_KEY, "5ce9b8a5-5f18-4c1f-9eda-1611b83e8915").get(Response.class);
+        Assert.assertEquals(401, response.getStatus());
+
+        // not an api-key
+        response = target(V1_TEAM + "/self").request().header("Authorization", "Bearer " + jwt).get(Response.class);
+        Assert.assertEquals(400, response.getStatus());
+    }
 
     @Test
     public void createTeamTest() {
@@ -137,10 +169,30 @@ public class TeamResourceTest extends ResourceTest {
         Assert.assertEquals("The team could not be found.", body);
     }
 
-    //@Test
-    // TODO: The workaround for Jersey (DELETE with body) no longer throws an exception, but produces a 400. Unable to test at this time
+    @Test
     public void deleteTeamTest() {
         Team team = qm.createTeam("My Team", false);
+        Response response = target(V1_TEAM).request()
+                .header(X_API_KEY, apiKey)
+                .property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true) // HACK
+                .method("DELETE", Entity.entity(team, MediaType.APPLICATION_JSON)); // HACK
+        // Hack: Workaround to https://github.com/eclipse-ee4j/jersey/issues/3798
+        Assert.assertEquals(204, response.getStatus(), 0);
+    }
+
+    @Test
+    public void deleteTeamWithAclTest() {
+        Team team = qm.createTeam("My Team", false);
+        ConfigProperty aclToogle = qm.getConfigProperty(ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getGroupName(), ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName());
+        if (aclToogle == null) {
+            qm.createConfigProperty(ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getGroupName(), ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(), "true", ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(), ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
+        } else {
+             aclToogle.setPropertyValue("true");
+             qm.persist(aclToogle);
+        }
+        Project project = qm.createProject("Acme Example", null, "1", null, null, null, true, false);
+        project.addAccessTeam(team);
+        qm.persist(project);
         Response response = target(V1_TEAM).request()
                 .header(X_API_KEY, apiKey)
                 .property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true) // HACK

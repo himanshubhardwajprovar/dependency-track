@@ -18,6 +18,8 @@ other than a modern version of Docker.
 | 4.5GB RAM   | 16GB RAM    |
 | 2 CPU cores | 4 CPU cores |
 
+> These requirements can be disabled by setting the 'system.requirement.check.enabled' property or the 'SYSTEM_REQUIREMENT_CHECK_ENABLED' environment variable to 'false'. 
+
 ### Container Requirements (Front End)
 
 | Minimum     | Recommended |
@@ -132,6 +134,11 @@ services:
     # - ALPINE_HTTP_PROXY_PASSWORD=
     # - ALPINE_NO_PROXY=
     #
+    # Optional HTTP Outbound Connection Timeout Settings. All values are in seconds.
+    # - ALPINE_HTTP_TIMEOUT_CONNECTION=30
+    # - ALPINE_HTTP_TIMEOUT_SOCKET=30
+    # - ALPINE_HTTP_TIMEOUT_POOL=60
+    #
     # Optional Cross-Origin Resource Sharing (CORS) Headers
     # - ALPINE_CORS_ENABLED=true
     # - ALPINE_CORS_ALLOW_ORIGIN=*
@@ -140,6 +147,39 @@ services:
     # - ALPINE_CORS_EXPOSE_HEADERS=Origin, Content-Type, Authorization, X-Requested-With, Content-Length, Accept, Origin, X-Api-Key, X-Total-Count
     # - ALPINE_CORS_ALLOW_CREDENTIALS=true
     # - ALPINE_CORS_MAX_AGE=3600
+    #
+    # Optional metrics properties
+    # - ALPINE_METRICS_ENABLED=true
+    # - ALPINE_METRICS_AUTH_USERNAME=
+    # - ALPINE_METRICS_AUTH_PASSWORD=
+    #
+    # Optional environmental variables to enable default notification publisher templates override and set the base directory to search for templates
+    # - DEFAULT_TEMPLATES_OVERRIDE_ENABLED=false
+    # - DEFAULT_TEMPLATES_OVERRIDE_BASE_DIRECTORY=/data
+    #
+    # Optional configuration for the Snyk analyzer
+    # - SNYK_THREAD_POOL_SIZE=10
+    # - SNYK_RETRY_MAX_ATTEMPTS=6
+    # - SNYK_RETRY_EXPONENTIAL_BACKOFF_MULTIPLIER=2
+    # - SNYK_RETRY_EXPONENTIAL_BACKOFF_INITIAL_DURATION_SECONDS=1
+    # - SNYK_RETRY_EXPONENTIAL_BACKOFF_MAX_DURATION_SECONDS=60
+    #
+    # Optional configuration for the OSS Index analyzer
+    # - OSSINDEX_REQUEST_MAX_PURL=128
+    # - OSSINDEX_RETRY_BACKOFF_MAX_ATTEMPTS=50
+    # - OSSINDEX_RETRY_BACKOFF_MULTIPLIER=2
+    # - OSSINDEX_RETRY_BACKOFF_MAX_DURATION=600000
+    #
+    # Optional configuration for the repository metadata analyzer cache stampede for high concurrency workloads
+    # - REPO_META_ANALYZER_CACHESTAMPEDEBLOCKER_ENABLED=true
+    # - REPO_META_ANALYZER_CACHESTAMPEDEBLOCKER_LOCK_BUCKETS=1000
+    # - REPO_META_ANALYZER_CACHESTAMPEDEBLOCKER_MAX_ATTEMPTS=10
+    #
+    # Optional configuration for the system requirements
+    # - SYSTEM_REQUIREMENT_CHECK_ENABLED=true
+    # Optional environmental variables to provide more JVM arguments to the API Server JVM, i.e. "-XX:ActiveProcessorCount=8"
+    # - EXTRA_JAVA_OPTIONS=
+    
     deploy:
       resources:
         limits:
@@ -151,6 +191,8 @@ services:
     ports:
       - '8081:8080'
     volumes:
+    # Optional volume mount to override default notification publisher templates
+    # - "/host/path/to/template/base/dir:/data/templates"
       - 'dependency-track:/data'
     restart: unless-stopped
 

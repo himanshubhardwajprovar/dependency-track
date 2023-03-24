@@ -18,19 +18,24 @@
  */
 package org.dependencytrack.persistence;
 
+import alpine.common.logging.Logger;
 import alpine.event.framework.Event;
 import alpine.model.ApiKey;
 import alpine.model.Permission;
 import alpine.model.Team;
 import alpine.model.UserPrincipal;
+import alpine.notification.Notification;
+import alpine.notification.NotificationLevel;
 import alpine.persistence.PaginatedResult;
 import alpine.resources.AlpineRequest;
 import com.github.packageurl.PackageURL;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.dependencytrack.auth.Permissions;
 import org.dependencytrack.event.IndexEvent;
 import org.dependencytrack.model.Analysis;
 import org.dependencytrack.model.AnalysisComment;
+import org.dependencytrack.model.Classifier;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.ConfigPropertyConstants;
 import org.dependencytrack.model.FindingAttribution;
@@ -39,6 +44,11 @@ import org.dependencytrack.model.ProjectProperty;
 import org.dependencytrack.model.ServiceComponent;
 import org.dependencytrack.model.Tag;
 import org.dependencytrack.model.Vulnerability;
+import org.dependencytrack.notification.NotificationConstants;
+import org.dependencytrack.notification.NotificationGroup;
+import org.dependencytrack.notification.NotificationScope;
+import org.dependencytrack.util.NotificationUtil;
+
 import javax.jdo.FetchPlan;
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
@@ -51,6 +61,8 @@ import java.util.Map;
 import java.util.UUID;
 
 final class ProjectQueryManager extends QueryManager implements IQueryManager {
+
+    private static final Logger LOGGER = Logger.getLogger(ProjectQueryManager.class);
 
     /**
      * Constructs a new QueryManager.
@@ -73,44 +85,38 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * Returns a list of all projects.
      * @return a List of Projects
      */
-    public PaginatedResult getProjects(final boolean includeMetrics, final boolean excludeInactive) {
+    public PaginatedResult getProjects(final boolean includeMetrics, final boolean excludeInactive, final boolean onlyRoot) {
         final PaginatedResult result;
         final Query<Project> query = pm.newQuery(Project.class);
         if (orderBy == null) {
             query.setOrdering("name asc, version desc");
         }
-        String queryFilter = null;
-        final Map<String, Object> params = new HashMap<>();
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive);
+
+        if (onlyRoot){
+            filterBuilder.excludeChildProjects();
+            query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
+        }
+
         if (filter != null) {
             final String filterString = ".*" + filter.toLowerCase() + ".*";
             final Tag tag = getTagByName(filter.trim());
+
             if (tag != null) {
-                if (excludeInactive) {
-                    queryFilter = "((name.toLowerCase().matches(:name) || tags.contains(:tag)) && (active == true || active == null))";
-                } else {
-                    queryFilter = "(name.toLowerCase().matches(:name) || tags.contains(:tag))";
-                }
-                params.put("name", filterString);
-                params.put("tag", tag);
-                preprocessACLs(query, queryFilter, params, false);
-                result = execute(query, params);
+                filterBuilder = filterBuilder.withFuzzyNameOrExactTag(filterString, tag);
+
             } else {
-                if (excludeInactive) {
-                    queryFilter = "(name.toLowerCase().matches(:name) && (active == true || active == null))";
-                } else {
-                    queryFilter = "(name.toLowerCase().matches(:name))";
-                }
-                params.put("name", filterString);
-                preprocessACLs(query, queryFilter, params, false);
-                result = execute(query, params);
+                filterBuilder = filterBuilder.withFuzzyName(filterString);
             }
-        } else {
-            if (excludeInactive) {
-                queryFilter = " (active == true || active == null) ";
-            }
-            preprocessACLs(query, queryFilter, params, false);
-            result = execute(query, params);
         }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        result = execute(query, params);
         if (includeMetrics) {
             // Populate each Project object in the paginated result with transitive related
             // data to minimize the number of round trips a client needs to make, process, and render.
@@ -126,7 +132,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return a List of Projects
      */
     public PaginatedResult getProjects(final boolean includeMetrics) {
-        return getProjects(includeMetrics, false);
+        return getProjects(includeMetrics, false, false);
     }
 
     /**
@@ -156,46 +162,56 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         if (excludeInactive) {
             query.setFilter("active == true || active == null");
         }
-        query.setOrdering("name asc");
-        return query.executeResultList(Project.class);
+        query.setOrdering("id asc");
+        return query.executeList();
     }
 
     /**
-     * Returns a list of projects by it's name.
+     * Returns a list of projects by their name.
      * @param name the name of the Projects (required)
      * @return a List of Project objects
      */
-    public PaginatedResult getProjects(final String name, final boolean excludeInactive) {
+    public PaginatedResult getProjects(final String name, final boolean excludeInactive, final boolean onlyRoot) {
         final Query<Project> query = pm.newQuery(Project.class);
         if (orderBy == null) {
             query.setOrdering("version desc");
         }
-        final String queryFilter;
-        if (excludeInactive) {
-            queryFilter = "(name == :name && (active == true || active == null))";
-        } else {
-            queryFilter = "(name == :name)";
+
+        final var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withName(name);
+
+        if (onlyRoot) {
+            filterBuilder.excludeChildProjects();
+            query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
         }
-        final Map<String, Object> params = new HashMap<>();
-        params.put("name", name);
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
         preprocessACLs(query, queryFilter, params, false);
         return execute(query, params);
     }
 
     /**
-     * Returns a project by it's name and version.
+     * Returns a project by its name and version.
      * @param name the name of the Project (required)
      * @param version the version of the Project (or null)
      * @return a Project object, or null if not found
      */
     public Project getProject(final String name, final String version) {
         final Query<Project> query = pm.newQuery(Project.class);
-        final String queryFilter = "(name == :name && version == :version)";
-        final Map<String, Object> params = new HashMap<>();
-        params.put("name", name);
-        params.put("version", version);
+
+        final var filterBuilder = new ProjectQueryFilterBuilder()
+                .withName(name)
+                .withVersion(version);
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
         preprocessACLs(query, queryFilter, params, false);
         query.setFilter(queryFilter);
+        query.setRange(0, 1);
         return singleResult(query.executeWithMap(params));
     }
 
@@ -204,19 +220,24 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @param team the team the has access to Projects
      * @return a List of Project objects
      */
-    public PaginatedResult getProjects(final Team team, final boolean excludeInactive, final boolean bypass) {
+    public PaginatedResult getProjects(final Team team, final boolean excludeInactive, final boolean bypass, final boolean onlyRoot) {
         final Query<Project> query = pm.newQuery(Project.class);
         if (orderBy == null) {
             query.setOrdering("name asc, version desc, id asc");
         }
-        final String queryFilter;
-        if (excludeInactive) {
-            queryFilter = "(active == true || active == null) && (accessTeams.contains(:team))";
-        } else {
-            queryFilter = "(accessTeams.contains(:team))";
+
+        final var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withTeam(team);
+
+        if (onlyRoot){
+            filterBuilder.excludeChildProjects();
+            query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
         }
-        final Map<String, Object> params = new HashMap<>();
-        params.put("team", team);
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
         preprocessACLs(query, queryFilter, params, bypass);
         return execute(query, params);
     }
@@ -226,15 +247,66 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @param tag the tag associated with the Project
      * @return a List of Projects that contain the tag
      */
-    public PaginatedResult getProjects(final Tag tag, final boolean includeMetrics) {
+    public PaginatedResult getProjects(final Tag tag, final boolean includeMetrics, final boolean excludeInactive, final boolean onlyRoot) {
         final PaginatedResult result;
         final Query<Project> query = pm.newQuery(Project.class);
-        final String queryFilter = "(tags.contains(:tag))";
         if (orderBy == null) {
             query.setOrdering("name asc");
         }
-        final Map<String, Object> params = new HashMap<>();
-        params.put("tag", tag);
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withTag(tag);
+
+        if (onlyRoot){
+            filterBuilder.excludeChildProjects();
+            query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
+        }
+
+        if (filter != null) {
+            final String filterString = ".*" + filter.toLowerCase() + ".*";
+            filterBuilder = filterBuilder.withFuzzyName(filterString);
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        result = execute(query, params);
+        if (includeMetrics) {
+            // Populate each Project object in the paginated result with transitive related
+            // data to minimize the number of round trips a client needs to make, process, and render.
+            for (Project project : result.getList(Project.class)) {
+                project.setMetrics(getMostRecentProjectMetrics(project));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns a paginated result of projects by classifier.
+     * @param classifier the classifier of the Project
+     * @return a List of Projects of the specified classifier
+     */
+    public PaginatedResult getProjects(final Classifier classifier, final boolean includeMetrics, final boolean excludeInactive, final boolean onlyRoot) {
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc");
+        }
+
+        final var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withClassifier(classifier);
+
+        if (onlyRoot){
+            filterBuilder.excludeChildProjects();
+            query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
         preprocessACLs(query, queryFilter, params, false);
         result = execute(query, params);
         if (includeMetrics) {
@@ -253,7 +325,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return a List of Projects that contain the tag
      */
     public PaginatedResult getProjects(final Tag tag) {
-        return getProjects(tag, false);
+        return getProjects(tag, false, false, false);
     }
 
     /**
@@ -291,9 +363,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return a Tag object
      */
     public Tag getTagByName(final String name) {
-        final String trimmedTag = StringUtils.trimToNull(name);
+        final String loweredTrimmedTag = StringUtils.lowerCase(StringUtils.trimToNull(name));
         final Query<Tag> query = pm.newQuery(Tag.class, "name == :name");
-        return singleResult(query.execute(trimmedTag));
+        query.setRange(0, 1);
+        return singleResult(query.execute(loweredTrimmedTag));
     }
 
     /**
@@ -302,13 +375,13 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return the created Tag object
      */
     public Tag createTag(final String name) {
-        final String trimmedTag = StringUtils.trimToNull(name);
-        final Tag resolvedTag = getTagByName(trimmedTag);
+        final String loweredTrimmedTag = StringUtils.lowerCase(StringUtils.trimToNull(name));
+        final Tag resolvedTag = getTagByName(loweredTrimmedTag);
         if (resolvedTag != null) {
             return resolvedTag;
         }
         final Tag tag = new Tag();
-        tag.setName(trimmedTag);
+        tag.setName(loweredTrimmedTag);
         return persist(tag);
     }
 
@@ -320,10 +393,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
     private List<Tag> createTags(final List<String> names) {
         final List<Tag> newTags = new ArrayList<>();
         for (final String name: names) {
-            final String trimmedTag = StringUtils.trimToNull(name);
-            if (getTagByName(trimmedTag) == null) {
+            final String loweredTrimmedTag = StringUtils.lowerCase(StringUtils.trimToNull(name));
+            if (getTagByName(loweredTrimmedTag) == null) {
                 final Tag tag = new Tag();
-                tag.setName(trimmedTag);
+                tag.setName(loweredTrimmedTag);
                 newTags.add(tag);
             }
         }
@@ -347,7 +420,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         project.setName(name);
         project.setDescription(description);
         project.setVersion(version);
-        if (parent != null) {
+        if (parent != null ) {
+            if (!Boolean.TRUE.equals(parent.isActive())){
+                throw new IllegalArgumentException("An inactive Parent cannot be selected as parent");
+            }
             project.setParent(parent);
         }
         project.setPurl(purl);
@@ -358,6 +434,14 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         bind(project, resolvedTags);
 
         Event.dispatch(new IndexEvent(IndexEvent.Action.CREATE, pm.detachCopy(result)));
+        Notification.dispatch(new Notification()
+                .scope(NotificationScope.PORTFOLIO)
+                .group(NotificationGroup.PROJECT_CREATED)
+                .title(NotificationConstants.Title.PROJECT_CREATED)
+                .level(NotificationLevel.INFORMATIONAL)
+                .content(result.getName() + " was created")
+                .subject(NotificationUtil.toJson(pm.detachCopy(result)))
+        );
         commitSearchIndex(commitIndex, Project.class);
         return result;
     }
@@ -370,6 +454,9 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return the created Project
      */
     public Project createProject(final Project project, List<Tag> tags, boolean commitIndex) {
+        if (project.getParent() != null && !Boolean.TRUE.equals(project.getParent().isActive())){
+            throw new IllegalArgumentException("An inactive Parent cannot be selected as parent");
+        }
         final Project result = persist(project);
         final List<Tag> resolvedTags = resolveTags(tags);
         bind(project, resolvedTags);
@@ -397,6 +484,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         project.setDescription(description);
         project.setVersion(version);
         project.setPurl(purl);
+
+        if (!active && Boolean.TRUE.equals(project.isActive()) && hasActiveChild(project)){
+            throw new IllegalArgumentException("Project cannot be set to inactive, if active children are present.");
+        }
         project.setActive(active);
 
         final List<Tag> resolvedTags = resolveTags(tags);
@@ -426,7 +517,28 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         project.setCpe(transientProject.getCpe());
         project.setPurl(transientProject.getPurl());
         project.setSwidTagId(transientProject.getSwidTagId());
+
+        if (Boolean.TRUE.equals(project.isActive()) && !Boolean.TRUE.equals(transientProject.isActive()) && hasActiveChild(project)){
+            throw new IllegalArgumentException("Project cannot be set to inactive if active children are present.");
+        }
         project.setActive(transientProject.isActive());
+
+        if (transientProject.getParent() != null && transientProject.getParent().getUuid() != null) {
+            if (project.getUuid().equals(transientProject.getParent().getUuid())){
+                throw new IllegalArgumentException("A project cannot select itself as a parent");
+            }
+            Project parent = getObjectByUuid(Project.class, transientProject.getParent().getUuid());
+            if (!Boolean.TRUE.equals(parent.isActive())){
+                throw new IllegalArgumentException("An inactive project cannot be selected as a parent");
+            } else if (isChildOf(parent, transientProject.getUuid())){
+                throw new IllegalArgumentException("The new parent project cannot be a child of the current project.");
+            } else {
+                project.setParent(parent);
+            }
+            project.setParent(parent);
+        }else {
+            project.setParent(null);
+        }
 
         final List<Tag> resolvedTags = resolveTags(transientProject.getTags());
         bind(project, resolvedTags);
@@ -438,7 +550,8 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
     }
 
     public Project clone(UUID from, String newVersion, boolean includeTags, boolean includeProperties,
-                         boolean includeComponents, boolean includeServices, boolean includeAuditHistory) {
+                         boolean includeComponents, boolean includeServices, boolean includeAuditHistory,
+                         boolean includeACL) {
         final Project source = getObjectByUuid(Project.class, from, Project.FetchGroup.ALL.name());
         if (source == null) {
             return null;
@@ -510,6 +623,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
                     analysis.setComponent(clonedComponent);
                     analysis.setVulnerability(sourceAnalysis.getVulnerability());
                     analysis.setSuppressed(sourceAnalysis.isSuppressed());
+                    analysis.setAnalysisResponse(sourceAnalysis.getAnalysisResponse());
+                    analysis.setAnalysisJustification(sourceAnalysis.getAnalysisJustification());
+                    analysis.setAnalysisState(sourceAnalysis.getAnalysisState());
+                    analysis.setAnalysisDetails(sourceAnalysis.getAnalysisDetails());
                     analysis = persist(analysis);
                     if (sourceAnalysis.getAnalysisComments() != null) {
                         for (final AnalysisComment sourceComment: sourceAnalysis.getAnalysisComments()) {
@@ -525,6 +642,13 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
             }
         }
 
+        if (includeACL) {
+            List<Team> accessTeams = source.getAccessTeams();
+            if (!CollectionUtils.isEmpty(accessTeams)) {
+                project.setAccessTeams(new ArrayList<>(accessTeams));
+            }
+        }
+
         project = getObjectById(Project.class, project.getId());
         Event.dispatch(new IndexEvent(IndexEvent.Action.CREATE, pm.detachCopy(project)));
         commitSearchIndex(true, Project.class);
@@ -534,16 +658,18 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
     /**
      * Deletes a Project and all objects dependant on the project.
      * @param project the Project to delete
+     * @param commitIndex specifies if the search index should be committed (an expensive operation)
      */
-    public void recursivelyDelete(Project project) {
+    public void recursivelyDelete(final Project project, final boolean commitIndex) {
         if (project.getChildren() != null) {
             for (final Project child: project.getChildren()) {
-                recursivelyDelete(child);
+                recursivelyDelete(child, false);
             }
         }
         pm.getFetchPlan().setDetachmentOptions(FetchPlan.DETACH_LOAD_FIELDS);
         final Project result = pm.getObjectById(Project.class, project.getId());
         Event.dispatch(new IndexEvent(IndexEvent.Action.DELETE, pm.detachCopy(result)));
+        commitSearchIndex(commitIndex, Project.class);
 
         deleteAnalysisTrail(project);
         deleteViolationAnalysisTrail(project);
@@ -556,7 +682,9 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
             recursivelyDelete(s, false);
         }
         deleteBoms(project);
+        deleteVexs(project);
         removeProjectFromNotificationRules(project);
+        removeProjectFromPolicies(project);
         delete(project.getProperties());
         delete(getAllBoms(project));
         delete(project.getChildren());
@@ -595,6 +723,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      */
     public ProjectProperty getProjectProperty(final Project project, final String groupName, final String propertyName) {
         final Query<ProjectProperty> query = this.pm.newQuery(ProjectProperty.class, "project == :project && groupName == :groupName && propertyName == :propertyName");
+        query.setRange(0, 1);
         return singleResult(query.execute(project, groupName, propertyName));
     }
 
@@ -616,6 +745,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @param tags a List of Tag objects
      */
     @SuppressWarnings("unchecked")
+    @Override
     public void bind(Project project, List<Tag> tags) {
         final Query<Tag> query = pm.newQuery(Tag.class, "projects.contains(:project)");
         final List<Tag> currentProjectTags = (List<Tag>)query.execute(project);
@@ -627,7 +757,10 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         }
         project.setTags(tags);
         for (final Tag tag: tags) {
-            tag.getProjects().add(project);
+            final List<Project> projects = tag.getProjects();
+            if (!projects.contains(project)) {
+                projects.add(project);
+            }
         }
         pm.currentTransaction().commit();
     }
@@ -652,10 +785,12 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
                 if (super.hasAccessManagementPermission(userPrincipal)) {
                     return true;
                 }
-                for (final Team userInTeam : userPrincipal.getTeams()) {
-                    for (final Team accessTeam : project.getAccessTeams()) {
-                        if (userInTeam.getId() == accessTeam.getId()) {
-                            return true;
+                if (userPrincipal.getTeams() != null) {
+                    for (final Team userInTeam : userPrincipal.getTeams()) {
+                        for (final Team accessTeam : project.getAccessTeams()) {
+                            if (userInTeam.getId() == accessTeam.getId()) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -664,10 +799,12 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
                 if (super.hasAccessManagementPermission(apiKey)) {
                     return true;
                 }
-                for (final Team userInTeam : apiKey.getTeams()) {
-                    for (final Team accessTeam : project.getAccessTeams()) {
-                        if (userInTeam.getId() == accessTeam.getId()) {
-                            return true;
+                if (apiKey.getTeams() != null) {
+                    for (final Team userInTeam : apiKey.getTeams()) {
+                        for (final Team accessTeam : project.getAccessTeams()) {
+                            if (userInTeam.getId() == accessTeam.getId()) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -705,15 +842,14 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
             if (teams != null && teams.size() > 0) {
                 final StringBuilder sb = new StringBuilder();
                 for (int i = 0, teamsSize = teams.size(); i < teamsSize; i++) {
-                    //final Team team = teams.get(i);
-                    final Team team = super.getObjectById(Team.class, teams.get(0).getId());
+                    final Team team = super.getObjectById(Team.class, teams.get(i).getId());
                     sb.append(" accessTeams.contains(:team").append(i).append(") ");
                     params.put("team" + i, team);
-                    if (i < teamsSize-2) {
+                    if (i < teamsSize-1) {
                         sb.append(" || ");
                     }
                 }
-                if (inputFilter != null) {
+                if (inputFilter != null && !inputFilter.isBlank()) {
                     query.setFilter(inputFilter + " && (" + sb.toString() + ")");
                 } else {
                     query.setFilter(sb.toString());
@@ -722,6 +858,32 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         } else if (StringUtils.trimToNull(inputFilter) != null) {
             query.setFilter(inputFilter);
         }
+    }
+
+    /**
+     * Updates a Project ACL to add the principals Team to the AccessTeams
+     * This only happens if Portfolio Access Control is enabled and the @param principal is an ApyKey
+     * For a UserPrincipal we don't know which Team(s) to add to the ACL,
+     * See https://github.com/DependencyTrack/dependency-track/issues/1435
+     * @param project
+     * @param principal
+     * @return True if ACL was updated
+     */
+    public boolean updateNewProjectACL(Project project, Principal principal) {
+        if (isEnabled(ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED) && principal instanceof ApiKey) {
+            ApiKey apiKey = (ApiKey) principal;
+            final var apiTeam = apiKey.getTeams().stream().findFirst();
+            if (apiTeam.isPresent()) {
+                LOGGER.debug("adding Team to ACL of newly created project");
+                final Team team = getObjectByUuid(Team.class, apiTeam.get().getUuid());
+                project.addAccessTeam(team);
+                persist(project);
+                return true;
+            } else {
+                LOGGER.warn("API Key without a Team, unable to assign team ACL to project.");
+            }
+        }
+        return false;
     }
 
     public boolean hasAccessManagementPermission(final UserPrincipal userPrincipal) {
@@ -735,5 +897,201 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
 
     public boolean hasAccessManagementPermission(final ApiKey apiKey) {
         return hasPermission(apiKey, Permissions.ACCESS_MANAGEMENT.name());
+    }
+
+
+    public PaginatedResult getChildrenProjects(final UUID uuid, final boolean includeMetrics, final boolean excludeInactive) {
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc, version desc");
+        }
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withParent(uuid);
+
+        if (filter != null) {
+            final String filterString = ".*" + filter.toLowerCase() + ".*";
+            final Tag tag = getTagByName(filter.trim());
+
+            if (tag != null) {
+                filterBuilder = filterBuilder.withFuzzyNameOrExactTag(filterString, tag);
+
+            } else {
+                filterBuilder = filterBuilder.withFuzzyName(filterString);
+            }
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
+        result = execute(query, params);
+        if (includeMetrics) {
+            // Populate each Project object in the paginated result with transitive related
+            // data to minimize the number of round trips a client needs to make, process, and render.
+            for (Project project : result.getList(Project.class)) {
+                project.setMetrics(getMostRecentProjectMetrics(project));
+            }
+        }
+        return result;
+    }
+
+    public PaginatedResult getChildrenProjects(final Classifier classifier, final UUID uuid, final boolean includeMetrics, final boolean excludeInactive) {
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc");
+        }
+
+        final var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withParent(uuid)
+                .withClassifier(classifier);
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        query.getFetchPlan().addGroup(Project.FetchGroup.ALL.name());
+        result = execute(query, params);
+        if (includeMetrics) {
+            // Populate each Project object in the paginated result with transitive related
+            // data to minimize the number of round trips a client needs to make, process, and render.
+            for (Project project : result.getList(Project.class)) {
+                project.setMetrics(getMostRecentProjectMetrics(project));
+            }
+        }
+        return result;
+    }
+
+    public PaginatedResult getChildrenProjects(final Tag tag, final UUID uuid, final boolean includeMetrics, final boolean excludeInactive) {
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc");
+        }
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withParent(uuid)
+                .withTag(tag);
+
+        if (filter != null) {
+            final String filterString = ".*" + filter.toLowerCase() + ".*";
+            filterBuilder = filterBuilder.withFuzzyName(filterString);
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        result = execute(query, params);
+        if (includeMetrics) {
+            // Populate each Project object in the paginated result with transitive related
+            // data to minimize the number of round trips a client needs to make, process, and render.
+            for (Project project : result.getList(Project.class)) {
+                project.setMetrics(getMostRecentProjectMetrics(project));
+            }
+        }
+        return result;
+    }
+
+    public PaginatedResult getProjectsWithoutDescendantsOf(final boolean exludeInactive, final Project project){
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc, version desc");
+        }
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(exludeInactive);
+
+        if (filter != null) {
+            final String filterString = ".*" + filter.toLowerCase() + ".*";
+            final Tag tag = getTagByName(filter.trim());
+
+            if (tag != null) {
+                filterBuilder = filterBuilder.withFuzzyNameOrExactTag(filterString, tag);
+
+            } else {
+                filterBuilder = filterBuilder.withFuzzyName(filterString);
+            }
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        result = execute(query, params);
+
+        result.setObjects(result.getList(Project.class).stream().filter(p -> !isChildOf(p, project.getUuid()) && !p.getUuid().equals(project.getUuid())).toList());
+        result.setTotal(result.getObjects().size());
+
+        return result;
+    }
+
+    public PaginatedResult getProjectsWithoutDescendantsOf(final String name, final boolean excludeInactive, Project project){
+        final PaginatedResult result;
+        final Query<Project> query = pm.newQuery(Project.class);
+        if (orderBy == null) {
+            query.setOrdering("name asc, version desc");
+        }
+
+        var filterBuilder = new ProjectQueryFilterBuilder()
+                .excludeInactive(excludeInactive)
+                .withName(name);
+
+        if (filter != null) {
+            final String filterString = ".*" + filter.toLowerCase() + ".*";
+            final Tag tag = getTagByName(filter.trim());
+
+            if (tag != null) {
+                filterBuilder = filterBuilder.withFuzzyNameOrExactTag(filterString, tag);
+
+            } else {
+                filterBuilder = filterBuilder.withFuzzyName(filterString);
+            }
+        }
+
+        final String queryFilter = filterBuilder.buildFilter();
+        final Map<String, Object> params = filterBuilder.getParams();
+
+        preprocessACLs(query, queryFilter, params, false);
+        result = execute(query, params);
+
+        result.setObjects(result.getList(Project.class).stream().filter(p -> !isChildOf(p, project.getUuid()) && !p.getUuid().equals(project.getUuid())).toList());
+        result.setTotal(result.getObjects().size());
+
+        return result;
+    }
+
+
+    private static boolean isChildOf(Project project, UUID uuid) {
+        boolean isChild = false;
+        if (project.getParent() != null){
+            if (project.getParent().getUuid().equals(uuid)){
+                return true;
+            } else {
+                isChild = isChildOf(project.getParent(), uuid);
+            }
+        }
+        return isChild;
+    }
+
+    private static boolean hasActiveChild(Project project) {
+        boolean hasActiveChild = false;
+        if (project.getChildren() != null){
+            for (Project child: project.getChildren()) {
+                if (Boolean.TRUE.equals(child.isActive()) || hasActiveChild) {
+                    return true;
+                } else {
+                    hasActiveChild = hasActiveChild(child);
+                }
+            }
+        }
+        return hasActiveChild;
     }
 }

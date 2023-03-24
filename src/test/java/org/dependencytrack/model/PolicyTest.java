@@ -20,6 +20,7 @@ package org.dependencytrack.model;
 
 import org.junit.Assert;
 import org.junit.Test;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -73,5 +74,24 @@ public class PolicyTest {
         policy.setProjects(projects);
         Assert.assertEquals(1, policy.getProjects().size());
         Assert.assertEquals(project, policy.getProjects().get(0));
+    }
+
+    @Test
+    public void testTags() {
+        List<Tag> tags = new ArrayList<>();
+        Tag tag = new Tag();
+        tags.add(tag);
+        Policy policy = new Policy();
+        policy.setTags(tags);
+        Assert.assertEquals(1, policy.getTags().size());
+        Assert.assertEquals(tag, policy.getTags().get(0));
+    }
+
+    @Test
+    public void testIncludeChildren() {
+        Policy policy = new Policy();
+        Assert.assertFalse(policy.isIncludeChildren());
+        policy.setIncludeChildren(true);
+        Assert.assertTrue(policy.isIncludeChildren());
     }
 }

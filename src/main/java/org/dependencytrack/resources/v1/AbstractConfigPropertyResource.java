@@ -18,17 +18,22 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.crypto.DataEncryption;
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
+import alpine.common.util.BooleanUtil;
+import alpine.common.util.UuidUtil;
 import alpine.model.IConfigProperty;
-import alpine.resources.AlpineResource;
-import alpine.util.BooleanUtil;
-import alpine.util.UuidUtil;
+import alpine.security.crypto.DataEncryption;
+import alpine.server.resources.AlpineResource;
+import org.dependencytrack.model.ConfigPropertyConstants;
 import org.dependencytrack.persistence.QueryManager;
+
 import javax.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 abstract class AbstractConfigPropertyResource extends AlpineResource {
 
@@ -57,7 +62,14 @@ abstract class AbstractConfigPropertyResource extends AlpineResource {
             property.setPropertyValue(String.valueOf(BooleanUtil.valueOf(json.getPropertyValue())));
         } else if (property.getPropertyType() == IConfigProperty.PropertyType.INTEGER) {
             try {
-                property.setPropertyValue(String.valueOf(Integer.parseInt(json.getPropertyValue())));
+                int propertyValue = Integer.parseInt(json.getPropertyValue());
+                if(ConfigPropertyConstants.TASK_SCHEDULER_LDAP_SYNC_CADENCE.getGroupName().equals(json.getGroupName()) && propertyValue <= 0) {
+                    return Response.status(Response.Status.BAD_REQUEST).entity("A Task scheduler cadence ("+json.getPropertyName()+") cannot be inferior to one hour.A value of "+propertyValue+" was provided.").build();
+                }
+                if(ConfigPropertyConstants.SEARCH_INDEXES_CONSISTENCY_CHECK_DELTA_THRESHOLD.getPropertyName().equals(json.getPropertyName()) && (propertyValue < 1 || propertyValue > 100)) {
+                    return Response.status(Response.Status.BAD_REQUEST).entity("Lucene index delta threshold ("+json.getPropertyName()+") cannot be inferior to 1 or superior to 100.A value of "+propertyValue+" was provided.").build();
+                }
+                property.setPropertyValue(String.valueOf(propertyValue));
             } catch (NumberFormatException e) {
                 return Response.status(Response.Status.BAD_REQUEST).entity("The property expected an integer and an integer was not sent.").build();
             }
@@ -99,6 +111,14 @@ abstract class AbstractConfigPropertyResource extends AlpineResource {
                     LOGGER.error("An error occurred while encrypting config property value", e);
                     return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity("An error occurred while encrypting property value. Check log for details.").build();
                 }
+            }
+        } else if(ConfigPropertyConstants.VULNERABILITY_SOURCE_GOOGLE_OSV_ENABLED.getPropertyName().equals(json.getPropertyName())) {
+            String propertyValue = json.getPropertyValue();
+            if (propertyValue != null && !propertyValue.isBlank()) {
+                Set<String> ecosystems = Arrays.stream(propertyValue.split(";")).map(String::trim).collect(Collectors.toSet());
+                property.setPropertyValue(String.join(";", ecosystems));
+            } else {
+                property.setPropertyValue(propertyValue);
             }
         } else {
             property.setPropertyValue(json.getPropertyValue());

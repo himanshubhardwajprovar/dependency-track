@@ -18,15 +18,12 @@
  */
 package org.dependencytrack.search;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import alpine.notification.Notification;
 import alpine.notification.NotificationLevel;
-import alpine.persistence.PaginatedResult;
-import alpine.resources.AlpineRequest;
-import alpine.resources.OrderDirection;
-import alpine.resources.Pagination;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.Term;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.Project;
@@ -34,6 +31,7 @@ import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
 import org.dependencytrack.persistence.QueryManager;
+
 import java.io.IOException;
 import java.util.List;
 
@@ -80,6 +78,8 @@ public final class ComponentIndexer extends IndexManager implements ObjectIndexe
 
         try {
             getIndexWriter().addDocument(doc);
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while adding component to index", e);
             Notification.dispatch(new Notification()
@@ -100,6 +100,8 @@ public final class ComponentIndexer extends IndexManager implements ObjectIndexe
     public void remove(final Component component) {
         try {
             getIndexWriter().deleteDocuments(new Term(IndexConstants.COMPONENT_UUID, component.getUuid().toString()));
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while removing a component from the index", e);
             Notification.dispatch(new Notification()
@@ -119,30 +121,15 @@ public final class ComponentIndexer extends IndexManager implements ObjectIndexe
     public void reindex() {
         LOGGER.info("Starting reindex task. This may take some time.");
         super.reindex();
-        final AlpineRequest alpineRequest = new AlpineRequest(
-                null,
-                new Pagination(Pagination.Strategy.OFFSET, 0, 100),
-                null,
-                "id",
-                OrderDirection.ASCENDING
-        );
-        try (final QueryManager qm = new QueryManager(alpineRequest)) {
-            final PaginatedResult result = qm.getProjects(false, true);
-            long count = 0;
-            boolean shouldContinue = true;
-            while (count < result.getTotal() && shouldContinue) {
-                for (final Project project: result.getList(Project.class)) {
-                    final List<Component> components = qm.getAllComponents(project);
-                    LOGGER.info("Indexing " + components.size() + " components in project: " + project.getUuid());
-                    for (final Component component: components) {
-                        add(component);
-                    }
-                    LOGGER.info("Completed indexing of " + components.size() + " components in project: " + project.getUuid());
+        try (final QueryManager qm = new QueryManager()) {
+            final List<Project> projects = qm.getAllProjects(true);
+            for (final Project project : projects) {
+                final List<Component> components = qm.getAllComponents(project);
+                LOGGER.info("Indexing " + components.size() + " components in project: " + project.getUuid());
+                for (final Component component: components) {
+                    add(component);
                 }
-                int lastResult = result.getObjects().size();
-                count += lastResult;
-                shouldContinue = lastResult > 0;
-                qm.advancePagination();
+                LOGGER.info("Completed indexing of " + components.size() + " components in project: " + project.getUuid());
             }
             commit();
         }

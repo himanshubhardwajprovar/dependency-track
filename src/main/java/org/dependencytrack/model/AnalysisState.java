@@ -29,5 +29,6 @@ public enum AnalysisState {
     IN_TRIAGE,
     FALSE_POSITIVE,
     NOT_AFFECTED,
+    RESOLVED,
     NOT_SET
 }

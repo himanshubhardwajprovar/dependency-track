@@ -21,11 +21,13 @@ package org.dependencytrack.tasks.scanners;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.Vulnerability;
 import org.dependencytrack.model.VulnerableSoftware;
+import org.dependencytrack.model.VulnerabilityAnalysisLevel;
 import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.util.ComponentVersion;
 import org.dependencytrack.util.NotificationUtil;
 import us.springett.parsers.cpe.util.Convert;
 import us.springett.parsers.cpe.values.LogicalValue;
+
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,12 +52,13 @@ public abstract class AbstractVulnerableSoftwareAnalysisTask extends BaseCompone
      * @param component the component being analyzed
      */
     protected void analyzeVersionRange(final QueryManager qm, final List<VulnerableSoftware> vsList,
-                                       final String targetVersion, final String targetUpdate, final Component component) {
+                                       final String targetVersion, final String targetUpdate, final Component component,
+                                       final VulnerabilityAnalysisLevel vulnerabilityAnalysisLevel) {
         for (final VulnerableSoftware vs: vsList) {
             if (compareVersions(vs, targetVersion) && compareUpdate(vs, targetUpdate)) {
                 if (vs.getVulnerabilities() != null) {
                     for (final Vulnerability vulnerability : vs.getVulnerabilities()) {
-                        NotificationUtil.analyzeNotificationCriteria(qm, vulnerability, component);
+                        NotificationUtil.analyzeNotificationCriteria(qm, vulnerability, component, vulnerabilityAnalysisLevel);
                         qm.addVulnerability(vulnerability, component, this.getAnalyzerIdentity());
                     }
                 }
@@ -76,8 +79,10 @@ public abstract class AbstractVulnerableSoftwareAnalysisTask extends BaseCompone
      * Ported from Dependency-Check v5.2.1
      */
     private static boolean compareVersions(VulnerableSoftware vs, String targetVersion) {
+        // For VulnerableSoftware (could actually be hardware) without a version number.
+        // e.g. cpe:2.3:o:intel:2000e_firmware:-:*:*:*:*:*:*:*
         if (LogicalValue.NA.getAbbreviation().equals(vs.getVersion())) {
-            return false;
+            return true;
         }
         //if any of the four conditions will be evaluated - then true;
         boolean result = (vs.getVersionEndExcluding() != null && !vs.getVersionEndExcluding().isEmpty())
@@ -85,7 +90,9 @@ public abstract class AbstractVulnerableSoftwareAnalysisTask extends BaseCompone
                 || (vs.getVersionEndIncluding() != null && !vs.getVersionEndIncluding().isEmpty())
                 || (vs.getVersionStartIncluding() != null && !vs.getVersionStartIncluding().isEmpty());
 
-        if (!result && compareAttributes(vs.getVersion(), targetVersion)) {
+        // Modified from original by Steve Springett
+        // Added null check: vs.getVersion() != null as purl sources that use version ranges may not have version populated.
+        if (!result && vs.getVersion() != null && compareAttributes(vs.getVersion(), targetVersion)) {
             return true;
         }
 
@@ -191,17 +198,24 @@ public abstract class AbstractVulnerableSoftwareAnalysisTask extends BaseCompone
      * <code>false</code>
      */
     private static boolean compareUpdate(VulnerableSoftware vs, String targetUpdate) {
+
+        if (targetUpdate != null && targetUpdate.equals(vs.getUpdate())) {
+            return true;
+        }
         if (LogicalValue.NA.getAbbreviation().equals(vs.getUpdate())) {
             return false;
         }
         if (vs.getUpdate() == null && targetUpdate == null) {
             return true;
         }
+        // Moving this above the null OR check to reflect method comments (ANY should mean ANY)
+        // This is necessary for fuzz matching when a PURL which assumes null
+        // is matched to a CPE which defaults to ANY
+        if (LogicalValue.ANY.getAbbreviation().equals(targetUpdate) || LogicalValue.ANY.getAbbreviation().equals(vs.getUpdate())) {
+            return true;
+        }
         if (vs.getUpdate() == null || targetUpdate == null) {
             return false;
-        }
-        if (LogicalValue.ANY.getAbbreviation().equals(targetUpdate)) {
-            return true;
         }
         return compareAttributes(vs.getUpdate(), targetUpdate);
     }

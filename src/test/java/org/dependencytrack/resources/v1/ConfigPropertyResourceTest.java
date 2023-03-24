@@ -18,17 +18,19 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.filters.ApiFilter;
-import alpine.filters.AuthenticationFilter;
+import alpine.server.filters.ApiFilter;
+import alpine.server.filters.AuthenticationFilter;
 import alpine.model.ConfigProperty;
 import alpine.model.IConfigProperty;
 import org.dependencytrack.ResourceTest;
+import org.dependencytrack.model.ConfigPropertyConstants;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.servlet.ServletContainer;
 import org.glassfish.jersey.test.DeploymentContext;
 import org.glassfish.jersey.test.ServletDeploymentContext;
 import org.junit.Assert;
 import org.junit.Test;
+
 import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.ws.rs.client.Entity;
@@ -131,6 +133,32 @@ public class ConfigPropertyResourceTest extends ResourceTest {
     }
 
     @Test
+    public void updateBadTaskSchedulerCadenceConfigPropertyTest() {
+        ConfigProperty property = qm.createConfigProperty(ConfigPropertyConstants.TASK_SCHEDULER_LDAP_SYNC_CADENCE.getGroupName(), "my.cadence", "24", IConfigProperty.PropertyType.INTEGER, "A cadence");
+        ConfigProperty request = qm.detach(ConfigProperty.class, property.getId());
+        request.setPropertyValue("-2");
+        Response response = target(V1_CONFIG_PROPERTY).request()
+                .header(X_API_KEY, apiKey)
+                .post(Entity.entity(request, MediaType.APPLICATION_JSON));
+        Assert.assertEquals(400, response.getStatus(), 0);
+        String body = getPlainTextBody(response);
+        Assert.assertEquals("A Task scheduler cadence ("+request.getPropertyName()+") cannot be inferior to one hour.A value of -2 was provided.", body);
+    }
+
+    @Test
+    public void updateBadIndexConsistencyThresholdConfigPropertyTest() {
+        ConfigProperty property = qm.createConfigProperty(ConfigPropertyConstants.SEARCH_INDEXES_CONSISTENCY_CHECK_DELTA_THRESHOLD.getGroupName(), ConfigPropertyConstants.SEARCH_INDEXES_CONSISTENCY_CHECK_DELTA_THRESHOLD.getPropertyName(), "24", IConfigProperty.PropertyType.INTEGER, ConfigPropertyConstants.SEARCH_INDEXES_CONSISTENCY_CHECK_DELTA_THRESHOLD.getDescription());
+        ConfigProperty request = qm.detach(ConfigProperty.class, property.getId());
+        request.setPropertyValue("-1");
+        Response response = target(V1_CONFIG_PROPERTY).request()
+                .header(X_API_KEY, apiKey)
+                .post(Entity.entity(request, MediaType.APPLICATION_JSON));
+        Assert.assertEquals(400, response.getStatus(), 0);
+        String body = getPlainTextBody(response);
+        Assert.assertEquals("Lucene index delta threshold ("+request.getPropertyName()+") cannot be inferior to 1 or superior to 100.A value of -1 was provided.", body);
+    }
+
+    @Test
     public void updateConfigPropertyUrlTest() {
         ConfigProperty property = qm.createConfigProperty("my.group", "my.url", "http://localhost", IConfigProperty.PropertyType.URL, "A url");
         ConfigProperty request = qm.detach(ConfigProperty.class, property.getId());
@@ -189,13 +217,16 @@ public class ConfigPropertyResourceTest extends ResourceTest {
         ConfigProperty prop1 = qm.createConfigProperty("my.group", "my.string1", "ABC", IConfigProperty.PropertyType.STRING, "A string");
         ConfigProperty prop2 = qm.createConfigProperty("my.group", "my.string2", "DEF", IConfigProperty.PropertyType.STRING, "A string");
         ConfigProperty prop3 = qm.createConfigProperty("my.group", "my.string3", "GHI", IConfigProperty.PropertyType.STRING, "A string");
+        ConfigProperty prop4 = qm.createConfigProperty(ConfigPropertyConstants.TASK_SCHEDULER_LDAP_SYNC_CADENCE.getGroupName(), "my.cadence", "1", IConfigProperty.PropertyType.INTEGER, "A cadence");
         prop1 = qm.detach(ConfigProperty.class, prop1.getId());
         prop2 = qm.detach(ConfigProperty.class, prop2.getId());
         prop3 = qm.detach(ConfigProperty.class, prop3.getId());
+        prop4 = qm.detach(ConfigProperty.class, prop4.getId());
         prop3.setPropertyValue("XYZ");
+        prop4.setPropertyValue("-2");
         Response response = target(V1_CONFIG_PROPERTY+"/aggregate").request()
                 .header(X_API_KEY, apiKey)
-                .post(Entity.entity(Arrays.asList(prop1, prop2, prop3), MediaType.APPLICATION_JSON));
+                .post(Entity.entity(Arrays.asList(prop1, prop2, prop3, prop4), MediaType.APPLICATION_JSON));
         Assert.assertEquals(200, response.getStatus(), 0);
         JsonArray json = parseJsonArray(response);
         JsonObject modifiedProp = json.getJsonObject(2);
@@ -205,5 +236,22 @@ public class ConfigPropertyResourceTest extends ResourceTest {
         Assert.assertEquals("XYZ", modifiedProp.getString("propertyValue"));
         Assert.assertEquals("STRING", modifiedProp.getString("propertyType"));
         Assert.assertEquals("A string", modifiedProp.getString("description"));
+        String body = json.getString(3);
+        Assert.assertEquals("A Task scheduler cadence ("+prop4.getPropertyName()+") cannot be inferior to one hour.A value of -2 was provided.", body);
+    }
+
+    @Test
+    public void updateConfigPropertyOsvEcosystemTest() {
+        ConfigProperty property = qm.createConfigProperty("my.group", ConfigPropertyConstants.VULNERABILITY_SOURCE_GOOGLE_OSV_ENABLED.getPropertyName(), "maven;npm;maven", IConfigProperty.PropertyType.STRING, "List of ecosystems");
+        ConfigProperty request = qm.detach(ConfigProperty.class, property.getId());
+        request.setPropertyValue("maven;npm;maven");
+        Response response = target(V1_CONFIG_PROPERTY).request()
+                .header(X_API_KEY, apiKey)
+                .post(Entity.entity(request, MediaType.APPLICATION_JSON));
+        Assert.assertEquals(200, response.getStatus(), 0);
+        JsonObject json = parseJsonObject(response);
+        Assert.assertNotNull(json);
+        Assert.assertEquals(ConfigPropertyConstants.VULNERABILITY_SOURCE_GOOGLE_OSV_ENABLED.getPropertyName(), json.getString("propertyName"));
+        Assert.assertEquals("maven;npm", json.getString("propertyValue"));
     }
 }

@@ -18,9 +18,10 @@
  */
 package org.dependencytrack.model;
 
-import alpine.json.TrimmedStringDeserializer;
+import alpine.common.validation.RegexSequence;
+import alpine.model.Team;
 import alpine.notification.NotificationLevel;
-import alpine.validation.RegexSequence;
+import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -28,6 +29,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import org.apache.commons.collections4.CollectionUtils;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Element;
 import javax.jdo.annotations.Extension;
@@ -83,6 +85,10 @@ public class NotificationRule implements Serializable {
     @Column(name = "ENABLED")
     private boolean enabled;
 
+    @Persistent
+    @Column(name = "NOTIFY_CHILDREN", allowsNull = "true") // New column, must allow nulls on existing data bases)
+    private boolean notifyChildren;
+
     @Persistent(defaultFetchGroup = "true")
     @Column(name = "SCOPE", jdbcType = "VARCHAR", allowsNull = "false")
     @NotNull
@@ -97,6 +103,12 @@ public class NotificationRule implements Serializable {
     @Element(column = "PROJECT_ID")
     @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "name ASC, version ASC"))
     private List<Project> projects;
+
+    @Persistent(table = "NOTIFICATIONRULE_TEAMS", defaultFetchGroup = "true")
+    @Join(column = "NOTIFICATIONRULE_ID")
+    @Element(column = "TEAM_ID")
+    @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "name ASC"))
+    private List<Team> teams;
 
     @Persistent
     @Column(name = "NOTIFY_ON", length = 1024)
@@ -149,6 +161,14 @@ public class NotificationRule implements Serializable {
         this.enabled = enabled;
     }
 
+    public boolean isNotifyChildren() {
+        return notifyChildren;
+    }
+
+    public void setNotifyChildren(boolean notifyChildren) {
+        this.notifyChildren = notifyChildren;
+    }
+
     @NotNull
     public NotificationScope getScope() {
         return scope;
@@ -172,6 +192,14 @@ public class NotificationRule implements Serializable {
 
     public void setProjects(List<Project> projects) {
         this.projects = projects;
+    }
+
+    public List<Team> getTeams() {
+        return teams;
+    }
+
+    public void setTeams(List<Team> teams) {
+        this.teams = teams;
     }
 
     public String getMessage() {

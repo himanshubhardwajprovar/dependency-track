@@ -18,13 +18,13 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.PasswordService;
-import alpine.filters.ApiFilter;
-import alpine.filters.AuthenticationFilter;
+import alpine.server.filters.ApiFilter;
+import alpine.server.filters.AuthenticationFilter;
 import alpine.model.LdapUser;
 import alpine.model.ManagedUser;
 import alpine.model.OidcUser;
 import alpine.model.Team;
+import alpine.server.auth.PasswordService;
 import org.dependencytrack.ResourceTest;
 import org.dependencytrack.model.IdentifiableObject;
 import org.glassfish.jersey.client.ClientProperties;
@@ -34,6 +34,7 @@ import org.glassfish.jersey.test.DeploymentContext;
 import org.glassfish.jersey.test.ServletDeploymentContext;
 import org.junit.Assert;
 import org.junit.Test;
+
 import javax.json.JsonArray;
 import javax.json.JsonObject;
 import javax.ws.rs.client.Entity;
@@ -234,8 +235,7 @@ public class UserResourceAuthenticatedTest extends ResourceTest {
         Assert.assertEquals("A user with the same username already exists. Cannot create new user.", body);
     }
 
-    //@Test
-    // TODO: The workaround for Jersey (DELETE with body) no longer throws an exception, but produces a 400. Unable to test at this time
+    @Test
     public void deleteLdapUserTest() {
         qm.createLdapUser("blackbeard");
         LdapUser user = new LdapUser();
@@ -456,8 +456,7 @@ public class UserResourceAuthenticatedTest extends ResourceTest {
         Assert.assertEquals("The user could not be found.", body);
     }
 
-    //@Test
-    // TODO: The workaround for Jersey (DELETE with body) no longer throws an exception, but produces a 400. Unable to test at this time
+    @Test
     public void deleteManagedUserTest() {
         String hashedPassword = String.valueOf(PasswordService.createHash("password".toCharArray()));
         qm.createManagedUser("blackbeard", "Captain BlackBeard", "blackbeard@example.com", hashedPassword, false, false, false);
@@ -572,8 +571,7 @@ public class UserResourceAuthenticatedTest extends ResourceTest {
         //Assert.assertEquals("The user is already a member of the specified team.", body);
     }
 
-    //@Test
-    // TODO: The workaround for Jersey (DELETE with body) no longer throws an exception, but produces a 400. Unable to test at this time
+    @Test
     public void removeTeamFromUserTest() {
         String hashedPassword = String.valueOf(PasswordService.createHash("password".toCharArray()));
         Team team = qm.createTeam("Pirates", false);
@@ -586,6 +584,6 @@ public class UserResourceAuthenticatedTest extends ResourceTest {
                 .property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true) // HACK
                 .method("DELETE", Entity.entity(ido, MediaType.APPLICATION_JSON)); // HACK
         // Hack: Workaround to https://github.com/eclipse-ee4j/jersey/issues/3798
-        Assert.assertEquals(204, response.getStatus(), 0);
+        Assert.assertEquals(200, response.getStatus(), 0);
     }
 }

@@ -27,10 +27,12 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 
-public class ConsolePublisherTest extends PersistenceCapableTest {
+public class ConsolePublisherTest extends PersistenceCapableTest implements NotificationTestConfigProvider {
 
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final ByteArrayOutputStream errContent = new ByteArrayOutputStream();
@@ -50,7 +52,7 @@ public class ConsolePublisherTest extends PersistenceCapableTest {
     }
 
     @Test
-    public void testOutputStream() {
+    public void testOutputStream() throws IOException {
         Notification notification = new Notification();
         notification.setScope(NotificationScope.PORTFOLIO.name());
         notification.setGroup(NotificationGroup.NEW_VULNERABILITY.name());
@@ -58,12 +60,12 @@ public class ConsolePublisherTest extends PersistenceCapableTest {
         notification.setTitle("Test Notification");
         notification.setContent("This is only a test");
         ConsolePublisher publisher = new ConsolePublisher();
-        publisher.inform(notification, null);
+        publisher.inform(notification, getConfig(DefaultNotificationPublishers.CONSOLE, ""));
         Assert.assertTrue(outContent.toString().contains(expectedResult(notification)));
     }
 
     @Test
-    public void testErrorStream() {
+    public void testErrorStream() throws IOException {
         Notification notification = new Notification();
         notification.setScope(NotificationScope.SYSTEM.name());
         notification.setGroup(NotificationGroup.FILE_SYSTEM.name());
@@ -71,18 +73,18 @@ public class ConsolePublisherTest extends PersistenceCapableTest {
         notification.setTitle("Test Notification");
         notification.setContent("This is only a test");
         ConsolePublisher publisher = new ConsolePublisher();
-        publisher.inform(notification, null);
+        publisher.inform(notification, getConfig(DefaultNotificationPublishers.CONSOLE, ""));
         Assert.assertTrue(errContent.toString().contains(expectedResult(notification)));
     }
 
     private String expectedResult(Notification notification) {
-        return "--------------------------------------------------------------------------------" + "\n" +
-                "Notification" + "\n" +
-                "  -- timestamp: " + notification.getTimestamp() + "\n" +
-                "  -- level:     " + notification.getLevel() + "\n" +
-                "  -- scope:     " + notification.getScope() + "\n" +
-                "  -- group:     " + notification.getGroup() + "\n" +
-                "  -- title:     " + notification.getTitle() + "\n" +
-                "  -- content:   " + notification.getContent() + "\n\n";
+        return "--------------------------------------------------------------------------------" + System.lineSeparator() +
+                "Notification" + System.lineSeparator() +
+                "  -- timestamp: " + notification.getTimestamp() + System.lineSeparator() +
+                "  -- level:     " + notification.getLevel() + System.lineSeparator() +
+                "  -- scope:     " + notification.getScope() + System.lineSeparator() +
+                "  -- group:     " + notification.getGroup() + System.lineSeparator() +
+                "  -- title:     " + notification.getTitle() + System.lineSeparator() +
+                "  -- content:   " + notification.getContent() + System.lineSeparator() + System.lineSeparator();
     }
 }

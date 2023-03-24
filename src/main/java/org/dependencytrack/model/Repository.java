@@ -18,10 +18,12 @@
  */
 package org.dependencytrack.model;
 
-import alpine.json.TrimmedStringDeserializer;
+import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.IdGeneratorStrategy;
 import javax.jdo.annotations.Index;
@@ -84,6 +86,15 @@ public class Repository implements Serializable {
     @NotNull
     private Boolean internal; // New column, must allow nulls on existing databases
 
+    @Persistent
+    @Column(name = "USERNAME")
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
+    private String username;
+
+    @Persistent
+    @Column(name = "PASSWORD")
+    private String password;
+
     @Persistent(customValueStrategy = "uuid")
     @Index(name = "REPOSITORY_UUID_IDX") // Cannot be @Unique. Microsoft SQL Server throws an exception
     @Column(name = "UUID", jdbcType = "VARCHAR", length = 36, allowsNull = "true")  // New column, must allow nulls on existing databases
@@ -144,6 +155,24 @@ public class Repository implements Serializable {
 
     public void setInternal(Boolean internal) {
         this.internal = internal;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    @JsonIgnore
+    public String getPassword() {
+        return password;
+    }
+
+    @JsonProperty(value = "password")
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     public UUID getUuid() {

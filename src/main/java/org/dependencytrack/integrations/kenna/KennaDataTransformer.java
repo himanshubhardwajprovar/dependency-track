@@ -29,6 +29,7 @@ import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.util.DateUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -175,8 +176,8 @@ public class KennaDataTransformer {
         if (vulnerability.getVulnId().startsWith("CVE-")) {
             vulnDef.put("cve_identifiers", vulnerability.getVulnId());
         }
-        if (vulnerability.getCwe() != null) {
-            vulnDef.put("cwe_identifier", "CWE-" + vulnerability.getCwe().getId());
+        if (vulnerability.getCwes() != null) {
+            vulnDef.put("cwe_identifier", "CWE-" + vulnerability.getCwes().get(0));
         }
         if (vulnerability.getTitle() != null) {
             vulnDef.put("name", vulnerability.getTitle());

@@ -30,6 +30,7 @@ import org.dependencytrack.model.Project;
 import org.dependencytrack.model.ViolationAnalysis;
 import org.dependencytrack.model.ViolationAnalysisComment;
 import org.dependencytrack.model.ViolationAnalysisState;
+
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
 import java.util.ArrayList;
@@ -82,7 +83,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
         if (orderBy == null) {
             query.setOrdering("name asc");
         }
-        return query.executeResultList(Policy.class);
+        return query.executeList();
     }
 
     /**
@@ -92,6 +93,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
      */
     public Policy getPolicy(final String name) {
         final Query<Policy> query = pm.newQuery(Policy.class, "name == :name");
+        query.setRange(0, 1);
         return singleResult(query.execute(name));
     }
 
@@ -173,6 +175,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
      */
     public synchronized PolicyViolation addPolicyViolationIfNotExist(final PolicyViolation pv) {
         final Query<PolicyViolation> query = pm.newQuery(PolicyViolation.class, "type == :type && component == :component && policyCondition == :policyCondition");
+        query.setRange(0, 1);
         PolicyViolation result = singleResult(query.execute(pv.getType(), pv.getComponent(), pv.getPolicyCondition()));
         if (result == null) {
             result = persist(pv);
@@ -190,7 +193,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
         if (orderBy == null) {
             query.setOrdering("timestamp desc, project.name, project.version, component.name, component.version");
         }
-        return query.executeResultList(PolicyViolation.class);
+        return query.executeList();
     }
 
     /**
@@ -208,17 +211,40 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
     }
 
     /**
-     * Returns a List of all Policy objects for a specific component.
-     * This method if designed NOT to provide paginated results.
-     * @return a List of all Policy objects
+     * Returns a List of all {@link PolicyViolation}s for a specific component.
+     * @param component The component to fetch {@link PolicyViolation}s for
+     * @return a List of {@link PolicyViolation}s
      */
-    @SuppressWarnings("unchecked")
     public List<PolicyViolation> getAllPolicyViolations(final Component component) {
-        final Query<PolicyViolation> query = pm.newQuery(PolicyViolation.class, "component.id == :cid");
+        return getAllPolicyViolations(component, true);
+    }
+
+    /**
+     * Returns a List of all {@link PolicyViolation}s for a specific component.
+     * @param component The component to fetch {@link PolicyViolation}s for
+     * @param includeSuppressed Whether to include suppressed violations or not
+     * @return a List of {@link PolicyViolation}s
+     */
+    public List<PolicyViolation> getAllPolicyViolations(final Component component, final boolean includeSuppressed) {
+        final Query<PolicyViolation> query = pm.newQuery(PolicyViolation.class);
+        if (includeSuppressed) {
+            query.setFilter("component.id == :cid");
+        } else {
+            query.setFilter("component.id == :cid && suppressions == 0");
+            query.declareVariables("long suppressions");
+
+            // For a given policy violation, check whether an analysis exists that suppresses it.
+            // The query will return either 0 (no analysis exists or not suppressed) or 1 (suppressed).
+            final Query<ViolationAnalysis> subQuery = pm.newQuery(ViolationAnalysis.class);
+            subQuery.setFilter("policyViolation == :policyViolation && suppressed == true");
+            subQuery.setResult("count(id)");
+            query.addSubquery(subQuery, "long suppressions", null, "this");
+        }
         if (orderBy == null) {
             query.setOrdering("timestamp desc, project.name, project.version, component.name, component.version");
         }
-        return (List<PolicyViolation>)query.execute(component.getId());
+        query.setParameters(component.getId());
+        return query.executeList();
     }
 
     /**
@@ -315,6 +341,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
      */
     public ViolationAnalysis getViolationAnalysis(Component component, PolicyViolation policyViolation) {
         final Query<ViolationAnalysis> query = pm.newQuery(ViolationAnalysis.class, "component == :component && policyViolation == :policyViolation");
+        query.setRange(0, 1);
         return singleResult(query.execute(component, policyViolation));
     }
 
@@ -414,6 +441,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
      */
     public LicenseGroup getLicenseGroup(final String name) {
         final Query<LicenseGroup> query = pm.newQuery(LicenseGroup.class, "name == :name");
+        query.setRange(0, 1);
         return singleResult(query.execute(name));
     }
 
@@ -437,6 +465,7 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
     public boolean doesLicenseGroupContainLicense(final LicenseGroup lg, final License license) {
         final License l = getObjectById(License.class, license.getId());
         final Query<LicenseGroup> query = pm.newQuery(LicenseGroup.class, "id == :id && licenses.contains(:license)");
+        query.setRange(0, 1);
         return singleResult(query.execute(lg.getId(), l)) != null;
     }
 
@@ -481,4 +510,31 @@ final class PolicyQueryManager extends QueryManager implements IQueryManager {
         delete(violations);
         delete(policyCondition);
     }
+
+    /**
+     * Removes all associations with a given {@link Project} from all {@link Policy}s.
+     * @param project The {@link Project} to remove from policies
+     */
+    public void removeProjectFromPolicies(final Project project) {
+        final Query<Policy> query = pm.newQuery(Policy.class, "projects.contains(:project)");
+        query.setParameters(project);
+
+        for (final Policy policy: query.executeList()) {
+            policy.getProjects().remove(project);
+            persist(policy);
+        }
+    }
+
+    /**
+     * Returns the number of audited policy violations of a given type for a component.
+     * @param component The {@link Component} to retrieve audit counts for
+     * @param type The {@link PolicyViolation.Type} to retrieve audit counts for
+     * @return The total number of audited {@link PolicyViolation}s for the {@link Component}
+     */
+    public long getAuditedCount(final Component component, final PolicyViolation.Type type) {
+        final Query<ViolationAnalysis> query = pm.newQuery(ViolationAnalysis.class);
+        query.setFilter("component == :component && policyViolation.type == :type && analysisState != null && analysisState != :notSet");
+        return getCount(query, component, type, ViolationAnalysisState.NOT_SET);
+    }
+
 }

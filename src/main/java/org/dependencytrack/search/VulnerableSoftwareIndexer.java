@@ -18,18 +18,20 @@
  */
 package org.dependencytrack.search;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import alpine.notification.Notification;
 import alpine.notification.NotificationLevel;
 import alpine.persistence.PaginatedResult;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.Term;
 import org.dependencytrack.model.VulnerableSoftware;
 import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
 import org.dependencytrack.persistence.QueryManager;
+
 import java.io.IOException;
 import java.util.List;
 
@@ -68,8 +70,8 @@ public final class VulnerableSoftwareIndexer extends IndexManager implements Obj
     public void add(final VulnerableSoftware vs) {
         final Document doc = new Document();
         addField(doc, IndexConstants.VULNERABLESOFTWARE_UUID, vs.getUuid().toString(), Field.Store.YES, false);
-        addField(doc, IndexConstants.VULNERABLESOFTWARE_CPE_22, vs.getCpe22(), Field.Store.YES, true);
-        addField(doc, IndexConstants.VULNERABLESOFTWARE_CPE_23, vs.getCpe23(), Field.Store.YES, true);
+        addField(doc, IndexConstants.VULNERABLESOFTWARE_CPE_22, vs.getCpe22(), Field.Store.YES, false);
+        addField(doc, IndexConstants.VULNERABLESOFTWARE_CPE_23, vs.getCpe23(), Field.Store.YES, false);
         addField(doc, IndexConstants.VULNERABLESOFTWARE_VENDOR, vs.getVendor(), Field.Store.YES, true);
         addField(doc, IndexConstants.VULNERABLESOFTWARE_PRODUCT, vs.getProduct(), Field.Store.YES, true);
         addField(doc, IndexConstants.VULNERABLESOFTWARE_VERSION, vs.getVersion(), Field.Store.YES, true);
@@ -77,6 +79,8 @@ public final class VulnerableSoftwareIndexer extends IndexManager implements Obj
 
         try {
             getIndexWriter().addDocument(doc);
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while adding a VulnerableSoftware to the index", e);
             Notification.dispatch(new Notification()
@@ -97,6 +101,8 @@ public final class VulnerableSoftwareIndexer extends IndexManager implements Obj
     public void remove(final VulnerableSoftware vs) {
         try {
             getIndexWriter().deleteDocuments(new Term(IndexConstants.VULNERABLESOFTWARE_UUID, vs.getUuid().toString()));
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while removing a VulnerableSoftware from the index", e);
             Notification.dispatch(new Notification()

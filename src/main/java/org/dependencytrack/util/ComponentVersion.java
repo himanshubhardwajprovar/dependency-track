@@ -20,6 +20,7 @@ package org.dependencytrack.util;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
+
 import javax.annotation.concurrent.NotThreadSafe;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -79,8 +80,18 @@ public class ComponentVersion implements Iterable<String>, Comparable<ComponentV
     public final void parseVersion(String version) {
         versionParts = new ArrayList<>();
         if (version != null) {
-            final Pattern rx = Pattern.compile("(\\d+[a-z]{1,3}$|[a-z]+\\d+|\\d+|(release|beta|alpha)$)");
-            final Matcher matcher = rx.matcher(version.toLowerCase());
+            // https://github.com/DependencyTrack/dependency-track/issues/1374
+            // handle deb versions
+            String lcVersion = version.toLowerCase();
+            final Pattern debrx = Pattern.compile("^([0-9]+:)?(.*)(-[^-]+ubuntu[^-]+)$");
+            final Matcher debmatcher = debrx.matcher(lcVersion);
+            if (debmatcher.matches()) {
+                lcVersion = debmatcher.group(2);
+            }
+
+            final Pattern rx = Pattern.compile("(\\d+[a-z]{1,3}$|[a-z]{1,3}[_-]?\\d+|\\d+|(rc|release|snapshot|beta|alpha)$)",
+                    Pattern.CASE_INSENSITIVE);
+            final Matcher matcher = rx.matcher(lcVersion);
             while (matcher.find()) {
                 versionParts.add(matcher.group());
             }
@@ -265,6 +276,14 @@ public class ComponentVersion implements Iterable<String>, Comparable<ComponentV
                 }
             }
         }
-        return Integer.compare(left.size(), right.size());
+        // Modified from original by Steve Springett
+        // Account for comparisons where one version may be 1.0.0 and another may be 1.0.0.0.
+        if (left.size() == max && right.size() == left.size()+1 && right.get(right.size()-1).equals("0")) {
+            return 0;
+        } else if (right.size() == max && left.size() == right.size()+1 && left.get(left.size()-1).equals("0")) {
+            return 0;
+        } else {
+            return Integer.compare(left.size(), right.size());
+        }
     }
 }

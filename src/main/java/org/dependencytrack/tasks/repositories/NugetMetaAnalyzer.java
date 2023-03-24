@@ -18,16 +18,19 @@
  */
 package org.dependencytrack.tasks.repositories;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import com.github.packageurl.PackageURL;
-import kong.unirest.HttpResponse;
-import kong.unirest.JsonNode;
-import kong.unirest.UnirestException;
-import kong.unirest.UnirestInstance;
-import kong.unirest.json.JSONArray;
-import org.dependencytrack.common.UnirestFactory;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.util.EntityUtils;
+import org.apache.maven.artifact.versioning.ComparableVersion;
+import org.dependencytrack.exception.MetaAnalyzerException;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.RepositoryType;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.IOException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -41,13 +44,36 @@ import java.util.Date;
  */
 public class NugetMetaAnalyzer extends AbstractMetaAnalyzer {
 
+    public static final DateFormat[] SUPPORTED_DATE_FORMATS = new DateFormat[]{
+            new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"),
+            new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    };
     private static final Logger LOGGER = Logger.getLogger(NugetMetaAnalyzer.class);
     private static final String DEFAULT_BASE_URL = "https://api.nuget.org";
-    private static final String VERSION_QUERY_URL = "/v3-flatcontainer/%s/index.json";
-    private static final String REGISTRATION_URL = "/v3/registration3/%s/%s.json";
+
+    private static final String INDEX_URL = "/v3/index.json";
+
+    private static final String DEFAULT_VERSION_QUERY_ENDPOINT = "/v3-flatcontainer/%s/index.json";
+
+    private static final String DEFAULT_REGISTRATION_ENDPOINT = "/v3/registration5-semver1/%s/%s.json";
+
+    private String versionQueryUrl;
+
+    private String registrationUrl;
 
     NugetMetaAnalyzer() {
         this.baseUrl = DEFAULT_BASE_URL;
+
+        // Set defaults that work with NuGet.org just in case the index endpoint is not available
+        this.versionQueryUrl = baseUrl + DEFAULT_VERSION_QUERY_ENDPOINT;
+        this.registrationUrl = baseUrl + DEFAULT_REGISTRATION_ENDPOINT;
+    }
+
+    @Override
+    public void setRepositoryBaseUrl(String baseUrl) {
+        super.setRepositoryBaseUrl(baseUrl);
+
+        initializeEndpoints();
     }
 
     /**
@@ -78,55 +104,119 @@ public class NugetMetaAnalyzer extends AbstractMetaAnalyzer {
     }
 
     private boolean performVersionCheck(final MetaModel meta, final Component component) {
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
-        final String url = String.format(baseUrl + VERSION_QUERY_URL, component.getPurl().getName().toLowerCase());
-        try {
-            final HttpResponse<JsonNode> response = ui.get(url)
-                    .header("accept", "application/json")
-                    .asJson();
-            if (response.getStatus() == 200) {
-                if (response.getBody() != null && response.getBody().getObject() != null) {
-                    final JSONArray versions = response.getBody().getObject().getJSONArray("versions");
-                    final String latest = versions.getString(versions.length()-1); // get the last version in the array
+        final String url = String.format(versionQueryUrl, component.getPurl().getName().toLowerCase());
+        try (final CloseableHttpResponse response = processHttpRequest(url)) {
+            if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+                if (response.getEntity() != null) {
+                    String responseString = EntityUtils.toString(response.getEntity());
+                    var jsonObject = new JSONObject(responseString);
+                    final JSONArray versions = jsonObject.getJSONArray("versions");
+                    final String latest = findLatestVersion(versions); // get the last version in the array
                     meta.setLatestVersion(latest);
                 }
                 return true;
             } else {
-                handleUnexpectedHttpResponse(LOGGER, url, response.getStatus(), response.getStatusText(), component);
+                handleUnexpectedHttpResponse(LOGGER, url, response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), component);
             }
-        } catch (UnirestException e) {
+        } catch (IOException e) {
             handleRequestException(LOGGER, e);
+        } catch (Exception ex) {
+            throw new MetaAnalyzerException(ex);
         }
         return false;
     }
 
+    private String findLatestVersion(JSONArray versions) {
+        if (versions.length() < 1) {
+            return null;
+        }
+
+        ComparableVersion latestVersion = new ComparableVersion(versions.getString(0));
+
+        for (int i = 1; i < versions.length(); i++) {
+            ComparableVersion version = new ComparableVersion(versions.getString(i));
+            if (version.compareTo(latestVersion) > 0) {
+                latestVersion = version;
+            }
+        }
+
+        return latestVersion.toString();
+    }
+
     private boolean performLastPublishedCheck(final MetaModel meta, final Component component) {
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
-        final String url = String.format(baseUrl + REGISTRATION_URL, component.getPurl().getName().toLowerCase(), meta.getLatestVersion());
+        final String url = String.format(registrationUrl, component.getPurl().getName().toLowerCase(), meta.getLatestVersion());
+        try (final CloseableHttpResponse response = processHttpRequest(url)) {
+            if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+                if (response.getEntity() != null) {
+                    String stringResponse = EntityUtils.toString(response.getEntity());
+                    if (!stringResponse.equalsIgnoreCase("") && !stringResponse.equalsIgnoreCase("{}")) {
+                        JSONObject jsonResponse = new JSONObject(stringResponse);
+                        final String updateTime = jsonResponse.optString("published", null);
+                        if (updateTime != null) {
+                            meta.setPublishedTimestamp(parseUpdateTime(updateTime));
+                        }
+                        return true;
+                    }
+                }
+            } else {
+                handleUnexpectedHttpResponse(LOGGER, url, response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), component);
+            }
+        } catch (IOException e) {
+            handleRequestException(LOGGER, e);
+        } catch (Exception ex) {
+            throw new MetaAnalyzerException(ex);
+        }
+        return false;
+    }
+
+    private void initializeEndpoints() {
+        final String url = baseUrl + INDEX_URL;
         try {
-            final HttpResponse<JsonNode> response = ui.get(url)
-                    .header("accept", "application/json")
-                    .asJson();
-            if (response.getStatus() == 200) {
-                if (response.getBody() != null && response.getBody().getObject() != null) {
-                    final String updateTime = response.getBody().getObject().optString("published", null);
-                    if (updateTime != null) {
-                        final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
-                        try {
-                            final Date published = dateFormat.parse(updateTime);
-                            meta.setPublishedTimestamp(published);
-                        } catch (ParseException e) {
-                            LOGGER.warn("An error occurred while parsing upload time for " + component.getPurl().toString() + " - Repo returned: " + updateTime);
+            try (final CloseableHttpResponse response = processHttpRequest(url)) {
+                if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+                    if(response.getEntity()!=null){
+                    String responseString = EntityUtils.toString(response.getEntity());
+                        JSONObject responseJson = new JSONObject(responseString);
+                        final JSONArray resources = responseJson.getJSONArray("resources");
+                        final JSONObject packageBaseResource = findResourceByType(resources, "PackageBaseAddress");
+                        final JSONObject registrationsBaseResource = findResourceByType(resources, "RegistrationsBaseUrl");
+                        if (packageBaseResource != null && registrationsBaseResource != null) {
+                            versionQueryUrl = packageBaseResource.getString("@id") + "%s/index.json";
+                            registrationUrl = registrationsBaseResource.getString("@id") + "%s/%s.json";
                         }
                     }
                 }
-                return true;
-            } else {
-                handleUnexpectedHttpResponse(LOGGER, url, response.getStatus(), response.getStatusText(), component);
             }
-        } catch (UnirestException e) {
+        } catch (IOException e) {
             handleRequestException(LOGGER, e);
         }
-        return false;
+    }
+
+    private JSONObject findResourceByType(JSONArray resources, String type) {
+        for (int i = 0; i < resources.length(); i++) {
+            String resourceType = resources.getJSONObject(i).getString("@type");
+            if (resourceType != null && resourceType.toLowerCase().startsWith(type.toLowerCase())) {
+                return resources.getJSONObject(i);
+            }
+        }
+
+        return null;
+    }
+
+    private Date parseUpdateTime(String updateTime) {
+        if (updateTime == null) {
+            return null;
+        }
+
+        // NuGet repositories may use differing date formats, so we try a few date formats that are commonly used until the right one is found.
+        for (DateFormat dateFormat : SUPPORTED_DATE_FORMATS) {
+            try {
+                return dateFormat.parse(updateTime);
+            } catch (ParseException e) {
+                LOGGER.warn("An error occurred while parsing upload time for a NuGet component - Repo returned: " + updateTime);
+            }
+        }
+
+        return null;
     }
 }

@@ -18,21 +18,21 @@
  */
 package org.dependencytrack.search;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import alpine.notification.Notification;
 import alpine.notification.NotificationLevel;
 import alpine.persistence.PaginatedResult;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.Term;
-import org.dependencytrack.model.Component;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
 import org.dependencytrack.persistence.QueryManager;
+
 import java.io.IOException;
-import java.util.List;
 
 /**
  * Indexer for operating on projects.
@@ -88,6 +88,8 @@ public final class ProjectIndexer extends IndexManager implements ObjectIndexer<
 
         try {
             getIndexWriter().addDocument(doc);
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while adding a project to the index", e);
             Notification.dispatch(new Notification()
@@ -108,6 +110,8 @@ public final class ProjectIndexer extends IndexManager implements ObjectIndexer<
     public void remove(final Project project) {
         try {
             getIndexWriter().deleteDocuments(new Term(IndexConstants.PROJECT_UUID, project.getUuid().toString()));
+        } catch (CorruptIndexException e) {
+            handleCorruptIndexException(e);
         } catch (IOException e) {
             LOGGER.error("An error occurred while removing a project from the index", e);
             Notification.dispatch(new Notification()
@@ -128,7 +132,7 @@ public final class ProjectIndexer extends IndexManager implements ObjectIndexer<
         LOGGER.info("Starting reindex task. This may take some time.");
         super.reindex();
         try (final QueryManager qm = new QueryManager()) {
-            final PaginatedResult result = qm.getProjects(false, true);
+            final PaginatedResult result = qm.getProjects(false, true, false);
             long count = 0;
             boolean shouldContinue = true;
             while (count < result.getTotal() && shouldContinue) {

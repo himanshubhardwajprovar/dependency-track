@@ -19,34 +19,46 @@
 package org.dependencytrack.tasks;
 
 import alpine.Config;
+import alpine.common.logging.Logger;
 import alpine.event.framework.Event;
 import alpine.event.framework.LoggableSubscriber;
-import alpine.logging.Logger;
+import alpine.model.ConfigProperty;
 import alpine.notification.Notification;
 import alpine.notification.NotificationLevel;
 import org.apache.commons.io.FileUtils;
 import org.apache.http.HttpHeaders;
+import org.apache.http.HttpStatus;
 import org.apache.http.StatusLine;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.dependencytrack.common.HttpClientPool;
+import org.dependencytrack.event.EpssMirrorEvent;
 import org.dependencytrack.event.NistMirrorEvent;
 import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
 import org.dependencytrack.parser.nvd.NvdParser;
+import org.dependencytrack.persistence.QueryManager;
+
 import java.io.Closeable;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.zip.GZIPInputStream;
+
+import static org.dependencytrack.model.ConfigPropertyConstants.VULNERABILITY_SOURCE_NVD_ENABLED;
+import static org.dependencytrack.model.ConfigPropertyConstants.VULNERABILITY_SOURCE_NVD_FEEDS_URL;
 
 /**
  * Subscriber task that performs a mirror of the National Vulnerability Database.
@@ -66,13 +78,15 @@ public class NistMirrorTask implements LoggableSubscriber {
     }
 
     public static final String NVD_MIRROR_DIR = Config.getInstance().getDataDirectorty().getAbsolutePath() + File.separator + "nist";
-    private static final String CPE_DICTIONARY_23_XML = "https://nvd.nist.gov/feeds/xml/cpe/dictionary/official-cpe-dictionary_v2.3.xml.gz";
-    private static final String CVE_JSON_11_MODIFIED_URL = "https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz";
-    private static final String CVE_JSON_11_BASE_URL = "https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-%d.json.gz";
-    private static final String CVE_JSON_11_MODIFIED_META = "https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.meta";
-    private static final String CVE_JSON_11_BASE_META = "https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-%d.meta";
+    private static final String CVE_JSON_11_MODIFIED_URL = "/json/cve/1.1/nvdcve-1.1-modified.json.gz";
+    private static final String CVE_JSON_11_BASE_URL = "/json/cve/1.1/nvdcve-1.1-%d.json.gz";
+    private static final String CVE_JSON_11_MODIFIED_META = "/json/cve/1.1/nvdcve-1.1-modified.meta";
+    private static final String CVE_JSON_11_BASE_META = "/json/cve/1.1/nvdcve-1.1-%d.meta";
     private static final int START_YEAR = 2002;
-    private static final int END_YEAR = Calendar.getInstance().get(Calendar.YEAR);
+    private final int endYear = Calendar.getInstance().get(Calendar.YEAR);
+
+    private final boolean isEnabled;
+    private String nvdFeedsUrl;
     private File outputDir;
     private long metricParseTime;
     private long metricDownloadTime;
@@ -81,11 +95,22 @@ public class NistMirrorTask implements LoggableSubscriber {
 
     private boolean mirroredWithoutErrors = true;
 
+    public NistMirrorTask() {
+        try (final QueryManager qm = new QueryManager()) {
+            final ConfigProperty enabled = qm.getConfigProperty(VULNERABILITY_SOURCE_NVD_ENABLED.getGroupName(), VULNERABILITY_SOURCE_NVD_ENABLED.getPropertyName());
+            this.isEnabled = enabled != null && Boolean.valueOf(enabled.getPropertyValue());
+            this.nvdFeedsUrl = qm.getConfigProperty(VULNERABILITY_SOURCE_NVD_FEEDS_URL.getGroupName(), VULNERABILITY_SOURCE_NVD_FEEDS_URL.getPropertyName()).getPropertyValue();
+            if (this.nvdFeedsUrl.endsWith("/")) {
+                this.nvdFeedsUrl = this.nvdFeedsUrl.substring(0, this.nvdFeedsUrl.length()-1);
+            }
+         }
+    }
+
     /**
      * {@inheritDoc}
      */
     public void inform(final Event e) {
-        if (e instanceof NistMirrorEvent) {
+        if (e instanceof NistMirrorEvent && this.isEnabled) {
             final long start = System.currentTimeMillis();
             LOGGER.info("Starting NIST mirroring task");
             final File mirrorPath = new File(NVD_MIRROR_DIR);
@@ -96,6 +121,7 @@ public class NistMirrorTask implements LoggableSubscriber {
             LOGGER.info("Time spent (d/l):   " + metricDownloadTime + "ms");
             LOGGER.info("Time spent (parse): " + metricParseTime + "ms");
             LOGGER.info("Time spent (total): " + (end - start) + "ms");
+            Event.dispatch(new EpssMirrorEvent());
         }
     }
 
@@ -105,15 +131,15 @@ public class NistMirrorTask implements LoggableSubscriber {
     private void getAllFiles() {
         final Date currentDate = new Date();
         LOGGER.info("Downloading files at " + currentDate);
-        for (int i = START_YEAR; i <= END_YEAR; i++) {
-            // Download JSON 1.1 year feeds
-            final String json11BaseUrl = CVE_JSON_11_BASE_URL.replace("%d", String.valueOf(i));
-            final String cve11BaseMetaUrl = CVE_JSON_11_BASE_META.replace("%d", String.valueOf(i));
+        doDownload(this.nvdFeedsUrl + CVE_JSON_11_MODIFIED_URL, ResourceType.CVE_MODIFIED_DATA);
+        doDownload(this.nvdFeedsUrl + CVE_JSON_11_MODIFIED_META, ResourceType.CVE_META);
+        for (int i = endYear; i >= START_YEAR; i--) {
+            // Download JSON 1.1 year feeds in reverse order
+            final String json11BaseUrl = this.nvdFeedsUrl + CVE_JSON_11_BASE_URL.replace("%d", String.valueOf(i));
+            final String cve11BaseMetaUrl = this.nvdFeedsUrl + CVE_JSON_11_BASE_META.replace("%d", String.valueOf(i));
             doDownload(json11BaseUrl, ResourceType.CVE_YEAR_DATA);
             doDownload(cve11BaseMetaUrl, ResourceType.CVE_META);
         }
-        doDownload(CVE_JSON_11_MODIFIED_URL, ResourceType.CVE_MODIFIED_DATA);
-        doDownload(CVE_JSON_11_MODIFIED_META, ResourceType.CVE_META);
 
         if (mirroredWithoutErrors) {
             Notification.dispatch(new Notification()
@@ -168,7 +194,15 @@ public class NistMirrorTask implements LoggableSubscriber {
             filename = filename.substring(filename.lastIndexOf('/') + 1);
             file = new File(outputDir, filename).getAbsoluteFile();
             if (file.exists()) {
-                if (System.currentTimeMillis() < ((86400000 * 5) + file.lastModified())) {
+                long modificationTime = 0;
+                File timestampFile = new File(outputDir, filename + ".ts");
+                if(timestampFile.exists()) {
+                    BufferedReader tsBufReader = new BufferedReader(new FileReader(timestampFile));
+                    String text = tsBufReader.readLine();
+                    modificationTime = Long.parseLong(text);
+                }
+
+                if (System.currentTimeMillis() < ((86400000 * 5) + modificationTime)) {
                     if (ResourceType.CVE_YEAR_DATA == resourceType) {
                         LOGGER.info("Retrieval of " + filename + " not necessary. Will use modified feed for updates.");
                         return;
@@ -190,14 +224,17 @@ public class NistMirrorTask implements LoggableSubscriber {
                 final StatusLine status = response.getStatusLine();
                 final long end = System.currentTimeMillis();
                 metricDownloadTime += end - start;
-                if (status.getStatusCode() == 200) {
+                if (status.getStatusCode() == HttpStatus.SC_OK) {
                     LOGGER.info("Downloading...");
                     try (InputStream in = response.getEntity().getContent()) {
-                        file = new File(outputDir, filename);
-                        FileUtils.copyInputStreamToFile(in, file);
+                        File temp = File.createTempFile(filename, null);
+                        FileUtils.copyInputStreamToFile(in, temp);
+                        Files.copy(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        Files.delete(temp.toPath());
                         if (ResourceType.CVE_YEAR_DATA == resourceType || ResourceType.CVE_MODIFIED_DATA == resourceType) {
                             // Sets the last modified date to 0. Upon a successful parse, it will be set back to its original date.
-                            file.setLastModified(0);
+                            File timestampFile = new File(outputDir, filename + ".ts");
+                            writeTimeStampFile(timestampFile, 0L);
                         }
                         if (file.getName().endsWith(".gz")) {
                             uncompress(file, resourceType);
@@ -262,7 +299,9 @@ public class NistMirrorTask implements LoggableSubscriber {
             if (ResourceType.CVE_YEAR_DATA == resourceType || ResourceType.CVE_MODIFIED_DATA == resourceType) {
                 final NvdParser parser = new NvdParser();
                 parser.parse(uncompressedFile);
-                file.setLastModified(start);
+                // Update modification time
+                File timestampFile = new File( file.getAbsolutePath() + ".ts");
+                writeTimeStampFile(timestampFile, start);
             }
             final long end = System.currentTimeMillis();
             metricParseTime += end - start;
@@ -286,6 +325,26 @@ public class NistMirrorTask implements LoggableSubscriber {
             } catch (IOException e) {
                 LOGGER.warn("Error closing stream", e);
             }
+        }
+    }
+
+    /**
+     * Writes the modification time to a timestamp file
+     * @param file the file
+     * @param modificationTime the time of the last update
+     */
+    private void writeTimeStampFile(final File file, Long modificationTime)
+    {
+        FileWriter writer = null;
+        try {
+            writer= new FileWriter(file);
+            writer.write(Long.toString(modificationTime));
+        }
+        catch (IOException ex) {
+            LOGGER.error("An error occurred writing time stamp file", ex);
+        }
+        finally {
+            close(writer);
         }
     }
 }

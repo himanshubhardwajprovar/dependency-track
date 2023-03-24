@@ -19,14 +19,21 @@
 package org.dependencytrack.persistence;
 
 import alpine.resources.AlpineRequest;
+import com.github.packageurl.PackageURL;
 import org.datanucleus.api.jdo.JDOQuery;
 import org.dependencytrack.model.Analysis;
 import org.dependencytrack.model.AnalysisComment;
+import org.dependencytrack.model.AnalysisJustification;
+import org.dependencytrack.model.AnalysisResponse;
 import org.dependencytrack.model.AnalysisState;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.Finding;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.model.Vulnerability;
+import org.dependencytrack.model.VulnerabilityAlias;
+import org.dependencytrack.model.RepositoryType;
+import org.dependencytrack.model.RepositoryMetaComponent;
+
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
 import java.util.ArrayList;
@@ -55,30 +62,36 @@ public class FindingsQueryManager extends QueryManager implements IQueryManager 
 
     /**
      * Returns the number of audited findings for the portfolio.
+     * Findings that are suppressed or have been assigned the states {@link AnalysisState#NOT_SET} or {@link AnalysisState#IN_TRIAGE}
+     * do not count as audited. Suppressions are tracked separately.
      * @return the total number of analysis decisions
      */
     public long getAuditedCount() {
-        final Query<Analysis> query = pm.newQuery(Analysis.class, "analysisState != null && analysisState != :notSet && analysisState != :inTriage");
+        final Query<Analysis> query = pm.newQuery(Analysis.class, "analysisState != null && suppressed == false && analysisState != :notSet && analysisState != :inTriage");
         return getCount(query, AnalysisState.NOT_SET, AnalysisState.IN_TRIAGE);
     }
 
     /**
      * Returns the number of audited findings for the specified Project.
+     * Findings that are suppressed or have been assigned the states {@link AnalysisState#NOT_SET} or {@link AnalysisState#IN_TRIAGE}
+     * do not count as audited. Suppressions are tracked separately.
      * @param project the Project to retrieve audit counts for
      * @return the total number of analysis decisions for the project
      */
     public long getAuditedCount(Project project) {
-        final Query<Analysis> query = pm.newQuery(Analysis.class, "project == :project && analysisState != null && analysisState != :notSet && analysisState != :inTriage");
+        final Query<Analysis> query = pm.newQuery(Analysis.class, "project == :project && analysisState != null && suppressed == false && analysisState != :notSet && analysisState != :inTriage");
         return getCount(query, project, AnalysisState.NOT_SET, AnalysisState.IN_TRIAGE);
     }
 
     /**
      * Returns the number of audited findings for the specified Component.
+     * Findings that are suppressed or have been assigned the states {@link AnalysisState#NOT_SET} or {@link AnalysisState#IN_TRIAGE}
+     * do not count as audited. Suppressions are tracked separately.
      * @param component the Component to retrieve audit counts for
      * @return the total number of analysis decisions for the component
      */
     public long getAuditedCount(Component component) {
-        final Query<Analysis> query = pm.newQuery(Analysis.class, "project == null && component == :component && analysisState != null && analysisState != :notSet && analysisState != :inTriage");
+        final Query<Analysis> query = pm.newQuery(Analysis.class, "component == :component && analysisState != null && suppressed == false && analysisState != :notSet && analysisState != :inTriage");
         return getCount(query, component, AnalysisState.NOT_SET, AnalysisState.IN_TRIAGE);
     }
 
@@ -118,7 +131,7 @@ public class FindingsQueryManager extends QueryManager implements IQueryManager 
      * @return the total number of suppressed vulnerabilities for the component
      */
     public long getSuppressedCount(Component component) {
-        final Query<Analysis> query = pm.newQuery(Analysis.class, "project == null && component == :component && suppressed == true");
+        final Query<Analysis> query = pm.newQuery(Analysis.class, "component == :component && suppressed == true");
         return getCount(query, component);
     }
 
@@ -152,31 +165,47 @@ public class FindingsQueryManager extends QueryManager implements IQueryManager 
      */
     public Analysis getAnalysis(Component component, Vulnerability vulnerability) {
         final Query<Analysis> query = pm.newQuery(Analysis.class, "component == :component && vulnerability == :vulnerability");
+        query.setRange(0, 1);
         return singleResult(query.execute(component, vulnerability));
     }
 
     /**
-     * Documents a new analysis. Creates a new Analysis object if one doesn't already exists and appends
+     * Documents a new analysis. Creates a new Analysis object if one doesn't already exist and appends
      * the specified comment along with a timestamp in the AnalysisComment trail.
      * @param component the Component
      * @param vulnerability the Vulnerability
      * @return an Analysis object
      */
-    public Analysis makeAnalysis(Component component, Vulnerability vulnerability,
-                                 AnalysisState analysisState, Boolean isSuppressed) {
-        if (analysisState == null) {
-            analysisState = AnalysisState.NOT_SET;
-        }
+    public Analysis makeAnalysis(Component component, Vulnerability vulnerability, AnalysisState analysisState,
+                                 AnalysisJustification analysisJustification, AnalysisResponse analysisResponse,
+                                 String analysisDetails, Boolean isSuppressed) {
         Analysis analysis = getAnalysis(component, vulnerability);
         if (analysis == null) {
             analysis = new Analysis();
             analysis.setComponent(component);
             analysis.setVulnerability(vulnerability);
         }
+
+        // In case we're updating an existing analysis, setting any of the fields
+        // to null will wipe them. That is not the expected behavior when an AnalysisRequest
+        // has some fields unset (so they're null). If fields are not set, there shouldn't
+        // be any modifications to the existing data.
+        if (analysisState != null) {
+            analysis.setAnalysisState(analysisState);
+        }
+        if (analysisJustification != null) {
+            analysis.setAnalysisJustification(analysisJustification);
+        }
+        if (analysisResponse != null) {
+            analysis.setAnalysisResponse(analysisResponse);
+        }
+        if (analysisDetails != null) {
+            analysis.setAnalysisDetails(analysisDetails);
+        }
         if (isSuppressed != null) {
             analysis.setSuppressed(isSuppressed);
         }
-        analysis.setAnalysisState(analysisState);
+
         analysis = persist(analysis);
         return getAnalysis(analysis.getComponent(), analysis.getVulnerability());
     }
@@ -245,10 +274,22 @@ public class FindingsQueryManager extends QueryManager implements IQueryManager 
             final Component component = getObjectByUuid(Component.class, (String)finding.getComponent().get("uuid"));
             final Vulnerability vulnerability = getObjectByUuid(Vulnerability.class, (String)finding.getVulnerability().get("uuid"));
             final Analysis analysis = getAnalysis(component, vulnerability);
+            final List<VulnerabilityAlias> aliases = detach(getVulnerabilityAliases(vulnerability));
+            finding.addVulnerabilityAliases(aliases);
             if (includeSuppressed || analysis == null || !analysis.isSuppressed()) { // do not add globally suppressed findings
                 // These are CLOB fields. Handle these here so that database-specific deserialization doesn't need to be performed (in Finding)
                 finding.getVulnerability().put("description", vulnerability.getDescription());
                 finding.getVulnerability().put("recommendation", vulnerability.getRecommendation());
+                final PackageURL purl = component.getPurl();
+                if (purl != null) {
+                    final RepositoryType type = RepositoryType.resolve(purl);
+                    if (RepositoryType.UNSUPPORTED != type) {
+                        final RepositoryMetaComponent repoMetaComponent = getRepositoryMetaComponent(type, purl.getNamespace(), purl.getName());
+                        if (repoMetaComponent != null) {
+                            finding.getComponent().put("latestVersion", repoMetaComponent.getLatestVersion());
+                        }
+                    }
+                }
                 findings.add(finding);
             }
         }

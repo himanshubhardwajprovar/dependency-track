@@ -18,8 +18,8 @@
  */
 package org.dependencytrack.model;
 
-import alpine.json.TrimmedStringDeserializer;
-import alpine.validation.RegexSequence;
+import alpine.common.validation.RegexSequence;
+import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -29,6 +29,7 @@ import com.github.packageurl.MalformedPackageURLException;
 import com.github.packageurl.PackageURL;
 import org.apache.commons.lang3.StringUtils;
 import org.dependencytrack.resources.v1.serializers.CustomPackageURLSerializer;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Element;
 import javax.jdo.annotations.Extension;
@@ -41,6 +42,7 @@ import javax.jdo.annotations.Order;
 import javax.jdo.annotations.PersistenceCapable;
 import javax.jdo.annotations.Persistent;
 import javax.jdo.annotations.PrimaryKey;
+import javax.jdo.annotations.Serialized;
 import javax.jdo.annotations.Unique;
 import javax.json.JsonObject;
 import javax.validation.constraints.NotBlank;
@@ -52,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
 
 /**
  * Model class for tracking individual components.
@@ -64,9 +67,22 @@ import java.util.UUID;
         @FetchGroup(name = "ALL", members = {
                 @Persistent(name = "project"),
                 @Persistent(name = "resolvedLicense"),
+                @Persistent(name = "externalReferences"),
                 @Persistent(name = "parent"),
                 @Persistent(name = "children"),
                 @Persistent(name = "vulnerabilities"),
+        }),
+        @FetchGroup(name = "INTERNAL_IDENTIFICATION", members = {
+                @Persistent(name = "id"),
+                @Persistent(name = "group"),
+                @Persistent(name = "name"),
+                @Persistent(name = "internal"),
+                @Persistent(name = "uuid")
+        }),
+        @FetchGroup(name = "METRICS_UPDATE", members = {
+                @Persistent(name = "id"),
+                @Persistent(name = "lastInheritedRiskScore"),
+                @Persistent(name = "uuid")
         })
 })
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -78,7 +94,9 @@ public class Component implements Serializable {
      * Defines JDO fetch groups for this class.
      */
     public enum FetchGroup {
-        ALL
+        ALL,
+        INTERNAL_IDENTIFICATION,
+        METRICS_UPDATE
     }
 
     @PrimaryKey
@@ -87,8 +105,7 @@ public class Component implements Serializable {
     private long id;
 
     @Persistent
-    @Column(name = "AUTHOR", jdbcType = "VARCHAR")
-    @Size(max = 255)
+    @Column(name = "AUTHOR", jdbcType = "CLOB")
     @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The author may only contain printable characters")
     private String author;
 
@@ -144,49 +161,49 @@ public class Component implements Serializable {
     @Persistent
     @Index(name = "COMPONENT_MD5_IDX")
     @Column(name = "MD5", jdbcType = "VARCHAR", length = 32)
-    @Pattern(regexp = RegexSequence.Definition.HASH_MD5, message = "The MD5 hash must be a valid 32 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{32}$", message = "The MD5 hash must be a valid 32 character HEX number")
     private String md5;
 
     @Persistent
     @Index(name = "COMPONENT_SHA1_IDX")
     @Column(name = "SHA1", jdbcType = "VARCHAR", length = 40)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA1, message = "The SHA1 hash must be a valid 40 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{40}$", message = "The SHA1 hash must be a valid 40 character HEX number")
     private String sha1;
 
     @Persistent
     @Index(name = "COMPONENT_SHA256_IDX")
     @Column(name = "SHA_256", jdbcType = "VARCHAR", length = 64)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA256, message = "The SHA-256 hash must be a valid 64 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{64}$", message = "The SHA-256 hash must be a valid 64 character HEX number")
     private String sha256;
 
     @Persistent
     @Index(name = "COMPONENT_SHA384_IDX")
     @Column(name = "SHA_384", jdbcType = "VARCHAR", length = 96)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA384, message = "The SHA-384 hash must be a valid 96 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{96}$", message = "The SHA-384 hash must be a valid 96 character HEX number")
     private String sha384;
 
     @Persistent
     @Index(name = "COMPONENT_SHA512_IDX")
     @Column(name = "SHA_512", jdbcType = "VARCHAR", length = 128)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA512, message = "The SHA-512 hash must be a valid 128 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{128}$", message = "The SHA-512 hash must be a valid 128 character HEX number")
     private String sha512;
 
     @Persistent
     @Index(name = "COMPONENT_SHA3_256_IDX")
     @Column(name = "SHA3_256", jdbcType = "VARCHAR", length = 64)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA256, message = "The SHA3-256 hash must be a valid 64 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{64}$", message = "The SHA3-256 hash must be a valid 64 character HEX number")
     private String sha3_256;
 
     @Persistent
     @Index(name = "COMPONENT_SHA3_384_IDX")
     @Column(name = "SHA3_384", jdbcType = "VARCHAR", length = 96)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA384, message = "The SHA3-384 hash must be a valid 96 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{96}$", message = "The SHA3-384 hash must be a valid 96 character HEX number")
     private String sha3_384;
 
     @Persistent
     @Index(name = "COMPONENT_SHA3_512_IDX")
     @Column(name = "SHA3_512", jdbcType = "VARCHAR", length = 128)
-    @Pattern(regexp = RegexSequence.Definition.HASH_SHA512, message = "The SHA3-512 hash must be a valid 128 character HEX number")
+    @Pattern(regexp = "^[0-9a-fA-F]{128}$", message = "The SHA3-512 hash must be a valid 128 character HEX number")
     private String sha3_512;
 
     @Persistent
@@ -266,6 +283,13 @@ public class Component implements Serializable {
     @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The license may only contain printable characters")
     private String license;
 
+    @Persistent
+    @Column(name = "LICENSE_URL", jdbcType = "VARCHAR")
+    @Size(max = 255)
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
+    @Pattern(regexp = RegexSequence.Definition.URL, message = "The license URL must be a valid URL")
+    private String licenseUrl;
+
     @Persistent(defaultFetchGroup = "true", cacheable = "false")
     @Column(name = "LICENSE_ID")
     private License resolvedLicense;
@@ -274,6 +298,11 @@ public class Component implements Serializable {
     @Column(name = "DIRECT_DEPENDENCIES", jdbcType = "CLOB")
     @JsonDeserialize(using = TrimmedStringDeserializer.class)
     private String directDependencies; // This will be a JSON string
+
+    @Persistent(defaultFetchGroup = "true")
+    @Column(name = "EXTERNAL_REFERENCES")
+    @Serialized
+    private List<ExternalReference> externalReferences;
 
     @Persistent
     @Column(name = "PARENT_COMPONENT_ID")
@@ -324,6 +353,10 @@ public class Component implements Serializable {
 
     @JsonIgnore
     private transient JsonObject cacheResult;
+
+    private transient Set<String> dependencyGraph;
+
+    private transient boolean expandDependencyGraph;
 
     public long getId() {
         return id;
@@ -402,7 +435,7 @@ public class Component implements Serializable {
     }
 
     public void setMd5(String md5) {
-        this.md5 = md5;
+        this.md5 = md5 == null ? null : md5.toLowerCase();
     }
 
     public String getSha1() {
@@ -410,7 +443,7 @@ public class Component implements Serializable {
     }
 
     public void setSha1(String sha1) {
-        this.sha1 = sha1;
+        this.sha1 = sha1 == null ? null : sha1.toLowerCase();
     }
 
     public String getSha256() {
@@ -418,7 +451,7 @@ public class Component implements Serializable {
     }
 
     public void setSha256(String sha256) {
-        this.sha256 = sha256;
+        this.sha256 = sha256 == null ? null : sha256.toLowerCase();
     }
 
     public String getSha384() {
@@ -426,7 +459,7 @@ public class Component implements Serializable {
     }
 
     public void setSha384(String sha384) {
-        this.sha384 = sha384;
+        this.sha384 = sha384 == null ? null : sha384.toLowerCase();
     }
 
     public String getSha512() {
@@ -434,7 +467,7 @@ public class Component implements Serializable {
     }
 
     public void setSha512(String sha512) {
-        this.sha512 = sha512;
+        this.sha512 = sha512 == null ? null : sha512.toLowerCase();
     }
 
     public String getSha3_256() {
@@ -442,7 +475,7 @@ public class Component implements Serializable {
     }
 
     public void setSha3_256(String sha3_256) {
-        this.sha3_256 = sha3_256;
+        this.sha3_256 = sha3_256 == null ? null : sha3_256.toLowerCase();
     }
 
     public String getSha3_384() {
@@ -450,7 +483,7 @@ public class Component implements Serializable {
     }
 
     public void setSha3_384(String sha3_384) {
-        this.sha3_384 = sha3_384;
+        this.sha3_384 = sha3_384 == null ? null : sha3_384.toLowerCase();
     }
 
     public String getSha3_512() {
@@ -458,7 +491,7 @@ public class Component implements Serializable {
     }
 
     public void setSha3_512(String sha3_512) {
-        this.sha3_512 = sha3_512;
+        this.sha3_512 = sha3_512 == null ? null : sha3_512.toLowerCase();
     }
 
     public String getBlake2b_256() {
@@ -592,6 +625,14 @@ public class Component implements Serializable {
         this.license = StringUtils.abbreviate(license, 255);
     }
 
+    public String getLicenseUrl() {
+        return licenseUrl;
+    }
+
+    public void setLicenseUrl(String licenseUrl) {
+        this.licenseUrl = StringUtils.abbreviate(licenseUrl, 255);
+    }
+
     public License getResolvedLicense() {
         return resolvedLicense;
     }
@@ -606,6 +647,21 @@ public class Component implements Serializable {
 
     public void setDirectDependencies(String directDependencies) {
         this.directDependencies = directDependencies;
+    }
+
+    public List<ExternalReference> getExternalReferences() {
+        return externalReferences;
+    }
+
+    public void addExternalReference(ExternalReference externalReferences) {
+        if (this.externalReferences == null) {
+            this.externalReferences = new ArrayList<>();
+        }
+        this.externalReferences.add(externalReferences);
+    }
+
+    public void setExternalReferences(List<ExternalReference> externalReferences) {
+        this.externalReferences = externalReferences;
     }
 
     public Component getParent() {
@@ -713,6 +769,22 @@ public class Component implements Serializable {
 
     public void setCacheResult(JsonObject cacheResult) {
         this.cacheResult = cacheResult;
+    }
+
+    public Set<String> getDependencyGraph() {
+        return dependencyGraph;
+    }
+
+    public void setDependencyGraph(Set<String> dependencyGraph) {
+        this.dependencyGraph = dependencyGraph;
+    }
+
+    public boolean isExpandDependencyGraph() {
+        return expandDependencyGraph;
+    }
+
+    public void setExpandDependencyGraph(boolean expandDependencyGraph) {
+        this.expandDependencyGraph = expandDependencyGraph;
     }
 
     @Override

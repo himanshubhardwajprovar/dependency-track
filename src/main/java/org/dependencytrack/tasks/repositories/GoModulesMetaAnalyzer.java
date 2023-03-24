@@ -18,17 +18,18 @@
  */
 package org.dependencytrack.tasks.repositories;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import com.github.packageurl.PackageURL;
-import kong.unirest.HttpResponse;
-import kong.unirest.JsonNode;
-import kong.unirest.UnirestException;
-import kong.unirest.UnirestInstance;
-import kong.unirest.json.JSONObject;
 import org.apache.commons.lang3.StringUtils;
-import org.dependencytrack.common.UnirestFactory;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.util.EntityUtils;
+import org.dependencytrack.exception.MetaAnalyzerException;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.RepositoryType;
+import org.json.JSONObject;
+
+import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 
@@ -60,20 +61,16 @@ public class GoModulesMetaAnalyzer extends AbstractMetaAnalyzer {
     public MetaModel analyze(final Component component) {
         final var meta = new MetaModel(component);
 
-        if (component.getPurl() == null) {
+        if (component.getPurl() == null || component.getPurl().getNamespace() == null) {
             return meta;
         }
-
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
         final String url = String.format(baseUrl + API_URL, caseEncode(component.getPurl().getNamespace()), caseEncode(component.getPurl().getName()));
 
-        try {
-            final HttpResponse<JsonNode> response = ui.get(url)
-                    .header("accept", "application/json")
-                    .asJson();
-            if (response.getStatus() == 200) {
-                if (response.getBody() != null && response.getBody().getObject() != null) {
-                    final JSONObject responseJson = response.getBody().getObject();
+        try (final CloseableHttpResponse response = processHttpRequest(url)) {
+            if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+                if (response.getEntity()!=null) {
+                    String responseString = EntityUtils.toString(response.getEntity());
+                    final var responseJson = new JSONObject(responseString);
                     meta.setLatestVersion(responseJson.getString("Version"));
 
                     // Module versions are prefixed with "v" in the Go ecosystem.
@@ -92,10 +89,12 @@ public class GoModulesMetaAnalyzer extends AbstractMetaAnalyzer {
                     }
                 }
             } else {
-                handleUnexpectedHttpResponse(LOGGER, url, response.getStatus(), response.getStatusText(), component);
+                handleUnexpectedHttpResponse(LOGGER, url, response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), component);
             }
-        } catch (UnirestException | ParseException e) {
+        } catch (IOException | ParseException e) {
             handleRequestException(LOGGER, e);
+        } catch (Exception ex) {
+            throw new MetaAnalyzerException(ex);
         }
 
         return meta;

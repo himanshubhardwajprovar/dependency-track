@@ -18,32 +18,56 @@
  */
 package org.dependencytrack.util;
 
+import alpine.model.ConfigProperty;
 import alpine.notification.Notification;
 import alpine.notification.NotificationLevel;
+import org.apache.commons.io.FileUtils;
 import org.dependencytrack.model.Analysis;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.ComponentIdentity;
+import org.dependencytrack.model.ConfigPropertyConstants;
+import org.dependencytrack.model.Cwe;
+import org.dependencytrack.model.NotificationPublisher;
+import org.dependencytrack.model.Policy;
+import org.dependencytrack.model.PolicyCondition;
 import org.dependencytrack.model.PolicyViolation;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.model.Tag;
 import org.dependencytrack.model.ViolationAnalysis;
+import org.dependencytrack.model.ViolationAnalysisState;
 import org.dependencytrack.model.Vulnerability;
+import org.dependencytrack.model.VulnerabilityAnalysisLevel;
 import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
+import org.dependencytrack.notification.publisher.DefaultNotificationPublishers;
 import org.dependencytrack.notification.vo.AnalysisDecisionChange;
 import org.dependencytrack.notification.vo.BomConsumedOrProcessed;
+import org.dependencytrack.notification.vo.BomProcessingFailed;
 import org.dependencytrack.notification.vo.NewVulnerabilityIdentified;
 import org.dependencytrack.notification.vo.NewVulnerableDependency;
+import org.dependencytrack.notification.vo.PolicyViolationIdentified;
+import org.dependencytrack.notification.vo.VexConsumedOrProcessed;
 import org.dependencytrack.notification.vo.ViolationAnalysisDecisionChange;
+import org.dependencytrack.parser.common.resolver.CweResolver;
 import org.dependencytrack.persistence.QueryManager;
+
+import javax.jdo.FetchPlan;
 import javax.json.Json;
+import javax.json.JsonArray;
 import javax.json.JsonArrayBuilder;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
+import java.io.File;
+import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public final class NotificationUtil {
 
@@ -52,65 +76,61 @@ public final class NotificationUtil {
      */
     private NotificationUtil() { }
 
-    public static void analyzeNotificationCriteria(QueryManager qm, Vulnerability vulnerability, Component component) {
+    public static void analyzeNotificationCriteria(QueryManager qm, Vulnerability vulnerability, Component component, VulnerabilityAnalysisLevel vulnerabilityAnalysisLevel) {
         if (!qm.contains(vulnerability, component)) {
             // Component did not previously contain this vulnerability. It could be a newly discovered vulnerability
             // against an existing component, or it could be a newly added (and vulnerable) component. Either way,
             // it warrants a Notification be dispatched.
-            final Set<Project> affectedProjects = new HashSet<>();
+            final Map<Long,Project> affectedProjects = new HashMap<>();
             final List<Component> components = qm.matchIdentity(new ComponentIdentity(component));
             for (final Component c : components) {
-                affectedProjects.add(qm.detach(Project.class, c.getProject().getId()));
+                if(!affectedProjects.containsKey(c.getProject().getId())) {
+                    affectedProjects.put(c.getProject().getId(), qm.detach(Project.class, c.getProject().getId()));
+                }
             }
 
             final Vulnerability detachedVuln =  qm.detach(Vulnerability.class, vulnerability.getId());
+            detachedVuln.setAliases(qm.detach(qm.getVulnerabilityAliases(vulnerability))); // Aliases are lost during detach above
             final Component detachedComponent = qm.detach(Component.class, component.getId());
 
             Notification.dispatch(new Notification()
                     .scope(NotificationScope.PORTFOLIO)
                     .group(NotificationGroup.NEW_VULNERABILITY)
-                    .title(NotificationConstants.Title.NEW_VULNERABILITY)
+                    .title(generateNotificationTitle(NotificationConstants.Title.NEW_VULNERABILITY, component.getProject()))
                     .level(NotificationLevel.INFORMATIONAL)
                     .content(generateNotificationContent(detachedVuln))
-                    .subject(new NewVulnerabilityIdentified(detachedVuln, detachedComponent, affectedProjects))
+                    .subject(new NewVulnerabilityIdentified(detachedVuln, detachedComponent, new HashSet<>(affectedProjects.values()), vulnerabilityAnalysisLevel))
             );
         }
     }
-/*
-    public static void analyzeNotificationCriteria(final QueryManager qm, final Dependency newDependency) {
-        Dependency dependency = qm.getDependency(newDependency);
-        final List<Vulnerability> vulnerabilities = qm.detach(qm.getAllVulnerabilities(dependency));
-        dependency = qm.detach(Dependency.class, dependency.getId());
-        for (final Vulnerability vulnerability: vulnerabilities) {
-            final Set<Project> affectedProjects = new HashSet<>(Collections.singletonList(dependency.getProject()));
-            Notification.dispatch(new Notification()
-                    .scope(NotificationScope.PORTFOLIO)
-                    .group(NotificationGroup.NEW_VULNERABILITY)
-                    .title(NotificationConstants.Title.NEW_VULNERABLE_DEPENDENCY)
-                    .level(NotificationLevel.INFORMATIONAL)
-                    .content(generateNotificationContent(vulnerability))
-                    .subject(new NewVulnerabilityIdentified(vulnerability, dependency.getComponent(), affectedProjects))
-            );
-        }
-        if (CollectionUtils.isNotEmpty(vulnerabilities)) {
+
+    public static void analyzeNotificationCriteria(final QueryManager qm, Component component) {
+        List<Vulnerability> vulnerabilities = qm.getAllVulnerabilities(component, false);
+        if (vulnerabilities != null && !vulnerabilities.isEmpty()) {
+            component = qm.detach(Component.class, component.getId());
+            vulnerabilities = qm.detach(vulnerabilities);
+            for (final Vulnerability vulnerability : vulnerabilities) {
+                // Because aliases is a transient field, it's lost when detaching the vulnerability.
+                // Repopulating here as a workaround, ultimately we need a better way to handle them.
+                vulnerability.setAliases(qm.detach(qm.getVulnerabilityAliases(vulnerability)));
+            }
+
             Notification.dispatch(new Notification()
                     .scope(NotificationScope.PORTFOLIO)
                     .group(NotificationGroup.NEW_VULNERABLE_DEPENDENCY)
-                    .title(NotificationConstants.Title.NEW_VULNERABLE_DEPENDENCY)
+                    .title(generateNotificationTitle(NotificationConstants.Title.NEW_VULNERABLE_DEPENDENCY, component.getProject()))
                     .level(NotificationLevel.INFORMATIONAL)
-                    .content(generateNotificationContent(dependency, vulnerabilities))
-                    .subject(new NewVulnerableDependency(dependency, vulnerabilities))
+                    .content(generateNotificationContent(component, vulnerabilities))
+                    .subject(new NewVulnerableDependency(component, vulnerabilities))
             );
         }
     }
-*/
+
     public static void analyzeNotificationCriteria(final QueryManager qm, Analysis analysis,
                                                    final boolean analysisStateChange, final boolean suppressionChange) {
         if (analysisStateChange || suppressionChange) {
             final NotificationGroup notificationGroup;
-            final Set<Project> affectedProjects = new HashSet<>();
             notificationGroup = NotificationGroup.PROJECT_AUDIT_CHANGE;
-            affectedProjects.add(analysis.getProject());
 
             String title = null;
             if (analysisStateChange) {
@@ -130,6 +150,9 @@ public final class NotificationUtil {
                     case NOT_SET:
                         title = NotificationConstants.Title.ANALYSIS_DECISION_NOT_SET;
                         break;
+                    case RESOLVED:
+                        title = NotificationConstants.Title.ANALYSIS_DECISION_RESOLVED;
+                        break;
                 }
             } else if (suppressionChange) {
                 if (analysis.isSuppressed()) {
@@ -139,15 +162,23 @@ public final class NotificationUtil {
                 }
             }
 
+            Project project = analysis.getComponent().getProject();
+
             analysis = qm.detach(Analysis.class, analysis.getId());
+
+            analysis.getComponent().setProject(project); // Project of component is lost after the detach above
+
+            // Aliases are lost during the detach above
+            analysis.getVulnerability().setAliases(qm.detach(qm.getVulnerabilityAliases(analysis.getVulnerability())));
+
             Notification.dispatch(new Notification()
                     .scope(NotificationScope.PORTFOLIO)
                     .group(notificationGroup)
-                    .title(title)
+                    .title(generateNotificationTitle(title, analysis.getComponent().getProject()))
                     .level(NotificationLevel.INFORMATIONAL)
                     .content(generateNotificationContent(analysis))
                     .subject(new AnalysisDecisionChange(analysis.getVulnerability(),
-                            analysis.getComponent(), affectedProjects, analysis))
+                            analysis.getComponent(), analysis.getProject(), analysis))
             );
         }
     }
@@ -178,17 +209,42 @@ public final class NotificationUtil {
                 }
             }
 
+            Project project = violationAnalysis.getComponent().getProject();
+            PolicyViolation policyViolation = violationAnalysis.getPolicyViolation();
+            policyViolation.getPolicyCondition().getPolicy(); // Force loading of policy
+
             violationAnalysis = qm.detach(ViolationAnalysis.class, violationAnalysis.getId());
+
+            violationAnalysis.getComponent().setProject(project); // Project of component is lost after the detach above
+            violationAnalysis.setPolicyViolation(policyViolation); // PolicyCondition and policy of policyViolation is lost after the detach above
+
             Notification.dispatch(new Notification()
                     .scope(NotificationScope.PORTFOLIO)
                     .group(notificationGroup)
-                    .title(title)
+                    .title(generateNotificationTitle(title, violationAnalysis.getComponent().getProject()))
                     .level(NotificationLevel.INFORMATIONAL)
                     .content(generateNotificationContent(violationAnalysis))
                     .subject(new ViolationAnalysisDecisionChange(violationAnalysis.getPolicyViolation(),
                             violationAnalysis.getComponent(), violationAnalysis))
             );
         }
+    }
+
+    public static void analyzeNotificationCriteria(final QueryManager qm, final PolicyViolation policyViolation) {
+        final ViolationAnalysis violationAnalysis = qm.getViolationAnalysis(policyViolation.getComponent(), policyViolation);
+        if (violationAnalysis != null && (violationAnalysis.isSuppressed() || ViolationAnalysisState.APPROVED == violationAnalysis.getAnalysisState())) return;
+        policyViolation.getPolicyCondition().getPolicy(); // Force loading of policy
+        qm.getPersistenceManager().getFetchPlan().setMaxFetchDepth(3); // Ensure policy is included
+        qm.getPersistenceManager().getFetchPlan().setDetachmentOptions(FetchPlan.DETACH_LOAD_FIELDS);
+        final PolicyViolation pv = qm.getPersistenceManager().detachCopy(policyViolation);
+        Notification.dispatch(new Notification()
+                .scope(NotificationScope.PORTFOLIO)
+                .group(NotificationGroup.POLICY_VIOLATION)
+                .title(generateNotificationTitle(NotificationConstants.Title.POLICY_VIOLATION,policyViolation.getComponent().getProject()))
+                .level(NotificationLevel.INFORMATIONAL)
+                .content(generateNotificationContent(pv))
+                .subject(new PolicyViolationIdentified(pv, pv.getComponent(), pv.getProject()))
+        );
     }
 
     public static JsonObject toJson(final Project project) {
@@ -235,20 +291,45 @@ public final class NotificationUtil {
         vulnerabilityBuilder.add("uuid", vulnerability.getUuid().toString());
         JsonUtil.add(vulnerabilityBuilder, "vulnId", vulnerability.getVulnId());
         JsonUtil.add(vulnerabilityBuilder, "source", vulnerability.getSource());
+        final JsonArrayBuilder aliasesBuilder = Json.createArrayBuilder();
+        if (vulnerability.getAliases() != null) {
+            for (final Map.Entry<Vulnerability.Source, String> vulnIdBySource : VulnerabilityUtil.getUniqueAliases(vulnerability)) {
+                aliasesBuilder.add(Json.createObjectBuilder()
+                        .add("source", vulnIdBySource.getKey().name())
+                        .add("vulnId", vulnIdBySource.getValue())
+                        .build());
+            }
+        }
+        vulnerabilityBuilder.add("aliases", aliasesBuilder.build());
         JsonUtil.add(vulnerabilityBuilder, "title", vulnerability.getTitle());
         JsonUtil.add(vulnerabilityBuilder, "subtitle", vulnerability.getSubTitle());
         JsonUtil.add(vulnerabilityBuilder, "description", vulnerability.getDescription());
         JsonUtil.add(vulnerabilityBuilder, "recommendation", vulnerability.getRecommendation());
         JsonUtil.add(vulnerabilityBuilder, "cvssv2", vulnerability.getCvssV2BaseScore());
         JsonUtil.add(vulnerabilityBuilder, "cvssv3", vulnerability.getCvssV3BaseScore());
+        JsonUtil.add(vulnerabilityBuilder, "owaspRRLikelihood", vulnerability.getOwaspRRLikelihoodScore());
+        JsonUtil.add(vulnerabilityBuilder, "owaspRRTechnicalImpact", vulnerability.getOwaspRRTechnicalImpactScore());
+        JsonUtil.add(vulnerabilityBuilder, "owaspRRBusinessImpact", vulnerability.getOwaspRRBusinessImpactScore());
         JsonUtil.add(vulnerabilityBuilder, "severity",  vulnerability.getSeverity());
-        if (vulnerability.getCwe() != null) {
-            final JsonObject cweNode = Json.createObjectBuilder()
-                    .add("cweId", vulnerability.getCwe().getCweId())
-                    .add("name", vulnerability.getCwe().getName())
-                    .build();
-            vulnerabilityBuilder.add("cwe", cweNode);
+        final JsonArrayBuilder cwesBuilder = Json.createArrayBuilder();
+        if (vulnerability.getCwes() != null) {
+            for (final Integer cweId: vulnerability.getCwes()) {
+                final Cwe cwe = CweResolver.getInstance().lookup(cweId);
+                if (cwe != null) {
+                    final JsonObject cweNode = Json.createObjectBuilder()
+                            .add("cweId", cwe.getCweId())
+                            .add("name", cwe.getName())
+                            .build();
+                    cwesBuilder.add(cweNode);
+                }
+            }
         }
+        final JsonArray cwes = cwesBuilder.build();
+        if (cwes != null && !cwes.isEmpty()) {
+            // Ensure backwards-compatibility with DT < 4.5.0. Remove this in v5!
+            vulnerabilityBuilder.add("cwe", cwes.getJsonObject(0));
+        }
+        vulnerabilityBuilder.add("cwes", cwes);
         return vulnerabilityBuilder.build();
     }
 
@@ -264,10 +345,25 @@ public final class NotificationUtil {
         return analysisBuilder.build();
     }
 
+    public static JsonObject toJson(final ViolationAnalysis violationAnalysis) {
+        final JsonObjectBuilder violationAnalysisBuilder = Json.createObjectBuilder();
+        violationAnalysisBuilder.add("suppressed", violationAnalysis.isSuppressed());
+        JsonUtil.add(violationAnalysisBuilder, "state", violationAnalysis.getAnalysisState());
+        if (violationAnalysis.getProject() != null) {
+            JsonUtil.add(violationAnalysisBuilder, "project", violationAnalysis.getProject().getUuid().toString());
+        }
+        JsonUtil.add(violationAnalysisBuilder, "component", violationAnalysis.getComponent().getUuid().toString());
+        JsonUtil.add(violationAnalysisBuilder, "policyViolation", violationAnalysis.getPolicyViolation().getUuid().toString());
+        return violationAnalysisBuilder.build();
+    }
+
     public static JsonObject toJson(final NewVulnerabilityIdentified vo) {
         final JsonObjectBuilder builder = Json.createObjectBuilder();
         if (vo.getComponent() != null) {
             builder.add("component", toJson(vo.getComponent()));
+        }
+        if (vo.getVulnerabilityAnalysisLevel() != null) {
+            builder.add("vulnerabilityAnalysisLevel", vo.getVulnerabilityAnalysisLevel().toString());
         }
         if (vo.getVulnerability() != null) {
             builder.add("vulnerability", toJson(vo.getVulnerability()));
@@ -311,12 +407,23 @@ public final class NotificationUtil {
         if (vo.getAnalysis() != null) {
             builder.add("analysis", toJson(vo.getAnalysis()));
         }
-        if (vo.getAffectedProjects() != null && vo.getAffectedProjects().size() > 0) {
-            final JsonArrayBuilder projectsBuilder = Json.createArrayBuilder();
-            for (final Project project: vo.getAffectedProjects()) {
-                projectsBuilder.add(toJson(project));
-            }
-            builder.add("affectedProjects", projectsBuilder.build());
+        if (vo.getProject() != null) {
+            // Provide the affected project in the form of an array for backwards-compatibility
+            builder.add("affectedProjects", Json.createArrayBuilder().add(toJson(vo.getProject())));
+        }
+        return builder.build();
+    }
+
+    public static JsonObject toJson(final ViolationAnalysisDecisionChange vo) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        if (vo.getComponent() != null) {
+            builder.add("component", toJson(vo.getComponent()));
+        }
+        if (vo.getPolicyViolation() != null) {
+            builder.add("policyViolation", toJson(vo.getPolicyViolation()));
+        }
+        if (vo.getViolationAnalysis() != null) {
+            builder.add("violationAnalysis", toJson(vo.getViolationAnalysis()));
         }
         return builder.build();
     }
@@ -336,6 +443,113 @@ public final class NotificationUtil {
         return builder.build();
     }
 
+    public static JsonObject toJson(final BomProcessingFailed vo) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        if (vo.getProject() != null) {
+            builder.add("project", toJson(vo.getProject()));
+        }
+        if (vo.getBom() != null) {
+            builder.add("bom", Json.createObjectBuilder()
+                    .add("content", vo.getBom())
+                    .add("format", vo.getFormat().getFormatShortName())
+                    .add("specVersion", vo.getSpecVersion()).build()
+            );
+        }
+        if (vo.getCause() != null) {
+            builder.add("cause", vo.getCause());
+        }
+        return builder.build();
+    }
+
+    public static JsonObject toJson(final VexConsumedOrProcessed vo) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        if (vo.getProject() != null) {
+            builder.add("project", toJson(vo.getProject()));
+        }
+        if (vo.getVex() != null) {
+            builder.add("vex", Json.createObjectBuilder()
+                    .add("content", vo.getVex())
+                    .add("format", vo.getFormat().getFormatShortName())
+                    .add("specVersion", vo.getSpecVersion()).build()
+            );
+        }
+        return builder.build();
+    }
+
+    public static JsonObject toJson(final PolicyViolationIdentified vo) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        if (vo.getComponent().getProject() != null) {
+            builder.add("project", toJson(vo.getComponent().getProject()));
+        }
+        if (vo.getComponent() != null) {
+            builder.add("component", toJson(vo.getComponent()));
+        }
+        if (vo.getPolicyViolation() != null) {
+            builder.add("policyViolation", toJson(vo.getPolicyViolation()));
+        }
+        return builder.build();
+    }
+
+    public static JsonObject toJson(final PolicyViolation pv) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        builder.add("uuid", pv.getUuid().toString());
+        builder.add("type", pv.getType().name());
+        builder.add("timestamp", DateUtil.toISO8601(pv.getTimestamp()));
+        builder.add("policyCondition", toJson(pv.getPolicyCondition()));
+        return builder.build();
+    }
+
+    public static JsonObject toJson(final PolicyCondition pc) {
+        final JsonObjectBuilder componentBuilder = Json.createObjectBuilder();
+        componentBuilder.add("uuid", pc.getUuid().toString());
+        JsonUtil.add(componentBuilder, "subject", pc.getSubject().name());
+        JsonUtil.add(componentBuilder, "operator", pc.getOperator().name());
+        JsonUtil.add(componentBuilder, "value", pc.getValue());
+        componentBuilder.add("policy", toJson(pc.getPolicy()));
+        return componentBuilder.build();
+    }
+
+    public static JsonObject toJson(final Policy policy) {
+        final JsonObjectBuilder builder = Json.createObjectBuilder();
+        builder.add("uuid", policy.getUuid().toString());
+        builder.add("name", policy.getName());
+        builder.add("violationState", policy.getViolationState().name());
+        return builder.build();
+    }
+
+    public static void loadDefaultNotificationPublishers(QueryManager qm) throws IOException {
+        for (final DefaultNotificationPublishers publisher : DefaultNotificationPublishers.values()) {
+            File templateFile = new File(URLDecoder.decode(NotificationUtil.class.getResource(publisher.getPublisherTemplateFile()).getFile(), UTF_8.name()));
+            if (qm.isEnabled(ConfigPropertyConstants.NOTIFICATION_TEMPLATE_DEFAULT_OVERRIDE_ENABLED)) {
+                ConfigProperty templateBaseDir = qm.getConfigProperty(
+                        ConfigPropertyConstants.NOTIFICATION_TEMPLATE_BASE_DIR.getGroupName(),
+                        ConfigPropertyConstants.NOTIFICATION_TEMPLATE_BASE_DIR.getPropertyName()
+                );
+                File userProvidedTemplateFile = new File(Path.of(templateBaseDir.getPropertyValue(), publisher.getPublisherTemplateFile()).toUri());
+                if (userProvidedTemplateFile.exists()) {
+                    templateFile = userProvidedTemplateFile;
+                }
+            }
+            final String templateContent = FileUtils.readFileToString(templateFile, UTF_8);
+            final NotificationPublisher existingPublisher = qm.getDefaultNotificationPublisher(publisher.getPublisherClass());
+            if (existingPublisher == null) {
+                qm.createNotificationPublisher(
+                        publisher.getPublisherName(), publisher.getPublisherDescription(),
+                        publisher.getPublisherClass(), templateContent, publisher.getTemplateMimeType(),
+                        publisher.isDefaultPublisher()
+                );
+            } else {
+                existingPublisher.setName(publisher.getPublisherName());
+                existingPublisher.setDescription(publisher.getPublisherDescription());
+                existingPublisher.setPublisherClass(publisher.getPublisherClass().getCanonicalName());
+                existingPublisher.setTemplate(templateContent);
+                existingPublisher.setTemplateMimeType(publisher.getTemplateMimeType());
+                existingPublisher.setDefaultPublisher(publisher.isDefaultPublisher());
+                qm.updateNotificationPublisher(existingPublisher);
+            }
+        }
+    }
+
     private static String generateNotificationContent(final Vulnerability vulnerability) {
         final String content;
         if (vulnerability.getDescription() != null) {
@@ -346,15 +560,8 @@ public final class NotificationUtil {
         return content;
     }
 
-    // TODO
     private static String generateNotificationContent(final PolicyViolation policyViolation) {
-        final String content = null;
-        if (policyViolation.getPolicyCondition().getSubject() != null) {
-            //content = policyViolation.getText();
-        } else {
-            //content = (vulnerability.getTitle() != null) ? vulnerability.getVulnId() + ": " +vulnerability.getTitle() : vulnerability.getVulnId();
-        }
-        return content;
+        return "A " + policyViolation.getType().name().toLowerCase() + " policy violation occurred";
     }
 
     private static String generateNotificationContent(final Component component, final List<Vulnerability> vulnerabilities) {
@@ -379,5 +586,12 @@ public final class NotificationUtil {
 
     private static String generateNotificationContent(final ViolationAnalysis violationAnalysis) {
         return "An violation analysis decision was made to a policy violation affecting a project";
+    }
+
+    public static String generateNotificationTitle(String messageType, Project project) {
+        if (project != null) {
+            return messageType + " on Project: [" + project.toString() + "]";
+        }
+        return messageType;
     }
 }

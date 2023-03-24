@@ -18,9 +18,8 @@
  */
 package org.dependencytrack.resources.v1;
 
-import alpine.auth.PermissionRequired;
-import alpine.logging.Logger;
 import alpine.model.ConfigProperty;
+import alpine.server.auth.PermissionRequired;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiResponse;
@@ -28,6 +27,7 @@ import io.swagger.annotations.ApiResponses;
 import io.swagger.annotations.Authorization;
 import org.dependencytrack.auth.Permissions;
 import org.dependencytrack.persistence.QueryManager;
+
 import javax.validation.Validator;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -48,8 +48,6 @@ import java.util.List;
 @Path("/v1/configProperty")
 @Api(value = "configProperty", authorizations = @Authorization(value = "X-Api-Key"))
 public class ConfigPropertyResource extends AbstractConfigPropertyResource {
-
-    private static final Logger LOGGER = Logger.getLogger(ConfigPropertyResource.class);
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
@@ -136,4 +134,6 @@ public class ConfigPropertyResource extends AbstractConfigPropertyResource {
         }
         return Response.ok(returnList).build();
     }
+
+
 }

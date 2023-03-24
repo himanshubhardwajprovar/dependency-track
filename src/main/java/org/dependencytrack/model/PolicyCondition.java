@@ -18,10 +18,11 @@
  */
 package org.dependencytrack.model;
 
-import alpine.validation.RegexSequence;
+import alpine.common.validation.RegexSequence;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.IdGeneratorStrategy;
 import javax.jdo.annotations.PersistenceCapable;
@@ -56,11 +57,13 @@ public class PolicyCondition implements Serializable {
         NUMERIC_EQUAL,
         NUMERIC_NOT_EQUAL,
         NUMERIC_GREATER_THAN_OR_EQUAL,
-        NUMERIC_LESSER_THAN_OR_EQUAL
+        NUMERIC_LESSER_THAN_OR_EQUAL,
+        CONTAINS_ALL,
+        CONTAINS_ANY
     }
 
     public enum Subject {
-        //AGE,
+        AGE,
         //ANALYZER,
         //BOM,
         COORDINATES,
@@ -71,7 +74,10 @@ public class PolicyCondition implements Serializable {
         PACKAGE_URL,
         SEVERITY,
         SWID_TAGID,
-        VERSION
+        VERSION,
+        COMPONENT_HASH,
+        CWE,
+        VULNERABILITY_ID
     }
 
     @PrimaryKey

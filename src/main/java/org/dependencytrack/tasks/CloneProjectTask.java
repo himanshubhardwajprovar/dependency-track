@@ -18,13 +18,14 @@
  */
 package org.dependencytrack.tasks;
 
+import alpine.common.logging.Logger;
 import alpine.event.framework.Event;
 import alpine.event.framework.Subscriber;
-import alpine.logging.Logger;
 import org.dependencytrack.event.CloneProjectEvent;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.resources.v1.vo.CloneProjectRequest;
+
 import java.util.UUID;
 
 public class CloneProjectTask implements Subscriber {
@@ -42,7 +43,7 @@ public class CloneProjectTask implements Subscriber {
             try (QueryManager qm = new QueryManager()) {
                 final Project project = qm.clone(UUID.fromString(request.getProject()),
                         request.getVersion(), request.includeTags(), request.includeProperties(),
-                        request.includeComponents(), request.includeServices(), request.includeAuditHistory());
+                        request.includeComponents(), request.includeServices(), request.includeAuditHistory(), request.includeACL());
                 LOGGER.info("Cloned project: " + request.getProject() + " to " + project.getUuid());
             }
         }

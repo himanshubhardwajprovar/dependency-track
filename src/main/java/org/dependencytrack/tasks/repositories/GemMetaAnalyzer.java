@@ -18,15 +18,17 @@
  */
 package org.dependencytrack.tasks.repositories;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import com.github.packageurl.PackageURL;
-import org.dependencytrack.common.UnirestFactory;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.util.EntityUtils;
+import org.dependencytrack.exception.MetaAnalyzerException;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.RepositoryType;
-import kong.unirest.HttpResponse;
-import kong.unirest.JsonNode;
-import kong.unirest.UnirestException;
-import kong.unirest.UnirestInstance;
+import org.json.JSONObject;
+
+import java.io.IOException;
 
 /**
  * An IMetaAnalyzer implementation that supports Ruby Gems.
@@ -62,25 +64,26 @@ public class GemMetaAnalyzer extends AbstractMetaAnalyzer {
      * {@inheritDoc}
      */
     public MetaModel analyze(final Component component) {
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
         final MetaModel meta = new MetaModel(component);
         if (component.getPurl() != null) {
             final String url = String.format(baseUrl + API_URL, component.getPurl().getName());
-            try {
-                final HttpResponse<JsonNode> response = ui.get(url)
-                        .header("accept", "application/json")
-                        .asJson();
-                if (response.getStatus() == 200) {
-                    if (response.getBody() != null && response.getBody().getObject() != null) {
-                        final String latest = response.getBody().getObject().getString("version");
+            try (final CloseableHttpResponse response = processHttpRequest(url)) {
+                if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK){
+                    if(response.getEntity()!=null){
+                        String responseString = EntityUtils.toString(response.getEntity());
+                        var jsonObject = new JSONObject(responseString);
+                        final String latest = jsonObject.getString("version");
                         meta.setLatestVersion(latest);
                     }
                 } else {
-                    handleUnexpectedHttpResponse(LOGGER, url, response.getStatus(), response.getStatusText(), component);
+                    handleUnexpectedHttpResponse(LOGGER, url, response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), component);
                 }
-            } catch (UnirestException e) {
-                handleRequestException(LOGGER, e);
+            }catch (IOException ex){
+                handleRequestException(LOGGER, ex);
+            }catch (Exception ex) {
+                throw new MetaAnalyzerException(ex);
             }
+
         }
         return meta;
     }

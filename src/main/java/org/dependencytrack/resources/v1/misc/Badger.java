@@ -18,10 +18,11 @@
  */
 package org.dependencytrack.resources.v1.misc;
 
-import alpine.logging.Logger;
-import com.mitchellbosecke.pebble.PebbleEngine;
-import com.mitchellbosecke.pebble.template.PebbleTemplate;
+import alpine.common.logging.Logger;
+import io.pebbletemplates.pebble.PebbleEngine;
+import io.pebbletemplates.pebble.template.PebbleTemplate;
 import org.dependencytrack.model.ProjectMetrics;
+
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
@@ -38,14 +39,17 @@ public class Badger {
 
     private static final PebbleEngine ENGINE = new PebbleEngine.Builder().newLineTrimming(false).build();
     private static final PebbleTemplate PROJECT_VULNS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-vulns.peb");
-    private static final PebbleTemplate PROJECT_NO_VULNS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-novulns.peb");
-    private static final PebbleTemplate PROJECT_NO_METRICS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-nometrics.peb");
+    private static final PebbleTemplate PROJECT_VULNS_NONE_TEMPLATE = ENGINE.getTemplate("templates/badge/project-vulns-none.peb");
+    private static final PebbleTemplate PROJECT_VULNS_NO_METRICS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-vulns-nometrics.peb");
+    private static final PebbleTemplate PROJECT_VIOLATIONS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-violations.peb");
+    private static final PebbleTemplate PROJECT_VIOLATIONS_NONE_TEMPLATE = ENGINE.getTemplate("templates/badge/project-violations-none.peb");
+    private static final PebbleTemplate PROJECT_VIOLATIONS_NO_METRICS_TEMPLATE = ENGINE.getTemplate("templates/badge/project-violations-nometrics.peb");
 
-    public String generate(ProjectMetrics metrics) {
+    public String generateVulnerabilities(ProjectMetrics metrics) {
         final Map<String, Object> context = new HashMap<>();
         context.put("roundedPixels", "3");
         if (metrics == null) {
-            return writeSvg(PROJECT_NO_METRICS_TEMPLATE, context);
+            return writeSvg(PROJECT_VULNS_NO_METRICS_TEMPLATE, context);
         } else if (metrics.getVulnerabilities() > 0) {
             context.put("critical", String.valueOf(metrics.getCritical()));
             context.put("high", String.valueOf(metrics.getHigh()));
@@ -54,7 +58,22 @@ public class Badger {
             context.put("unassigned", String.valueOf(metrics.getUnassigned()));
             return writeSvg(PROJECT_VULNS_TEMPLATE, context);
         } else {
-            return writeSvg(PROJECT_NO_VULNS_TEMPLATE, context);
+            return writeSvg(PROJECT_VULNS_NONE_TEMPLATE, context);
+        }
+    }
+
+    public String generateViolations(ProjectMetrics metrics) {
+        final Map<String, Object> context = new HashMap<>();
+        context.put("roundedPixels", "3");
+        if (metrics == null) {
+            return writeSvg(PROJECT_VIOLATIONS_NO_METRICS_TEMPLATE, context);
+        } else if (metrics.getPolicyViolationsTotal() > 0) {
+            context.put("fail", String.valueOf(metrics.getPolicyViolationsFail()));
+            context.put("warn", String.valueOf(metrics.getPolicyViolationsWarn()));
+            context.put("info", String.valueOf(metrics.getPolicyViolationsInfo()));
+            return writeSvg(PROJECT_VIOLATIONS_TEMPLATE, context);
+        } else {
+            return writeSvg(PROJECT_VIOLATIONS_NONE_TEMPLATE, context);
         }
     }
 

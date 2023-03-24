@@ -25,6 +25,7 @@ import org.dependencytrack.model.Policy;
 import org.dependencytrack.model.PolicyCondition;
 import org.junit.Assert;
 import org.junit.Test;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -99,6 +100,30 @@ public class LicensePolicyEvaluatorTest extends PersistenceCapableTest {
         PolicyEvaluator evaluator = new LicensePolicyEvaluator();
         List<PolicyConditionViolation> violations = evaluator.evaluate(policy, component);
         Assert.assertEquals(0, violations.size());
+    }
+
+    @Test
+    public void valueIsUnresolved() {
+        License license = new License();
+        license.setName("Apache 2.0");
+        license.setLicenseId("Apache-2.0");
+        license.setUuid(UUID.randomUUID());
+        license = qm.persist(license);
+
+        Policy policy = qm.createPolicy("Test Policy", Policy.Operator.ANY, Policy.ViolationState.INFO);
+        qm.createPolicyCondition(policy, PolicyCondition.Subject.LICENSE, PolicyCondition.Operator.IS, "unresolved");
+
+        Component componentWithLicense = new Component();
+        componentWithLicense.setResolvedLicense(license);
+
+        Component componentWithoutLicense = new Component();
+
+        PolicyEvaluator evaluator = new LicensePolicyEvaluator();
+        List<PolicyConditionViolation> violations = evaluator.evaluate(policy, componentWithLicense);
+        Assert.assertEquals(0, violations.size());
+
+        violations = evaluator.evaluate(policy, componentWithoutLicense);
+        Assert.assertEquals(1, violations.size());
     }
 
 }

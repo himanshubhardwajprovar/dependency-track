@@ -18,10 +18,11 @@
  */
 package org.dependencytrack.model;
 
-import alpine.validation.RegexSequence;
+import alpine.common.validation.RegexSequence;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Element;
 import javax.jdo.annotations.Extension;
@@ -117,6 +118,15 @@ public class Policy implements Serializable {
     private List<Project> projects;
 
     /**
+     * A list of zero-to-n tags
+     */
+    @Persistent(table = "POLICY_TAGS", defaultFetchGroup = "true")
+    @Join(column = "POLICY_ID")
+    @Element(column = "TAG_ID")
+    @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "name ASC"))
+    private List<Tag> tags;
+
+    /**
      * The unique identifier of the object.
      */
     @Persistent(customValueStrategy = "uuid")
@@ -124,6 +134,13 @@ public class Policy implements Serializable {
     @Column(name = "UUID", jdbcType = "VARCHAR", length = 36, allowsNull = "false")
     @NotNull
     private UUID uuid;
+
+    /**
+     * Include the children of the projects in the policy evaluation.
+     */
+    @Persistent
+    @Column(name = "INCLUDE_CHILDREN", allowsNull = "true") // New column, must allow nulls on existing data bases)
+    private boolean includeChildren;
 
     public long getId() {
         return id;
@@ -181,7 +198,15 @@ public class Policy implements Serializable {
     }
 
     public boolean isGlobal() {
-        return (projects == null || projects.size() == 0);
+        return (projects == null || projects.size() == 0) && (tags == null || tags.size() == 0);
+    }
+
+    public List<Tag> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<Tag> tags) {
+        this.tags = tags;
     }
 
     public UUID getUuid() {
@@ -190,5 +215,13 @@ public class Policy implements Serializable {
 
     public void setUuid(UUID uuid) {
         this.uuid = uuid;
+    }
+
+    public boolean isIncludeChildren() {
+        return includeChildren;
+    }
+
+    public void setIncludeChildren(boolean includeChildren) {
+        this.includeChildren = includeChildren;
     }
 }

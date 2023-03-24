@@ -18,17 +18,18 @@
  */
 package org.dependencytrack.tasks.repositories;
 
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import com.github.packageurl.PackageURL;
-import kong.unirest.HttpResponse;
-import kong.unirest.JsonNode;
-import kong.unirest.UnirestException;
-import kong.unirest.UnirestInstance;
-import kong.unirest.json.JSONArray;
-import kong.unirest.json.JSONObject;
-import org.dependencytrack.common.UnirestFactory;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.util.EntityUtils;
+import org.dependencytrack.exception.MetaAnalyzerException;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.RepositoryType;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.IOException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -68,21 +69,19 @@ public class PypiMetaAnalyzer extends AbstractMetaAnalyzer {
      * {@inheritDoc}
      */
     public MetaModel analyze(final Component component) {
-        final UnirestInstance ui = UnirestFactory.getUnirestInstance();
         final MetaModel meta = new MetaModel(component);
         if (component.getPurl() != null) {
             final String url = String.format(baseUrl + API_URL, component.getPurl().getName());
-            try {
-                final HttpResponse<JsonNode> response = ui.get(url)
-                        .header("accept", "application/json")
-                        .asJson();
-                if (response.getStatus() == 200) {
-                    if (response.getBody() != null && response.getBody().getObject() != null) {
-                        final JSONObject info = response.getBody().getObject().getJSONObject("info");
+            try (final CloseableHttpResponse response = processHttpRequest(url)) {
+                if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+                    if (response.getEntity() != null) {
+                        String stringResponse = EntityUtils.toString(response.getEntity());
+                        JSONObject jsonObject = new JSONObject(stringResponse);
+                        final JSONObject info = jsonObject.getJSONObject("info");
                         final String latest = info.optString("version", null);
                         if (latest != null) {
                             meta.setLatestVersion(latest);
-                            final JSONObject releases = response.getBody().getObject().getJSONObject("releases");
+                            final JSONObject releases = jsonObject.getJSONObject("releases");
                             final JSONArray latestArray = releases.getJSONArray(latest);
                             if (latestArray.length() > 0) {
                                 final JSONObject release = latestArray.getJSONObject(0);
@@ -100,10 +99,12 @@ public class PypiMetaAnalyzer extends AbstractMetaAnalyzer {
                         }
                     }
                 } else {
-                    handleUnexpectedHttpResponse(LOGGER, url, response.getStatus(), response.getStatusText(), component);
+                    handleUnexpectedHttpResponse(LOGGER, url, response.getStatusLine().getStatusCode(), response.getStatusLine().getReasonPhrase(), component);
                 }
-            } catch (UnirestException e) {
+            } catch (IOException e) {
                 handleRequestException(LOGGER, e);
+            } catch (Exception ex) {
+                throw new MetaAnalyzerException(ex);
             }
         }
         return meta;

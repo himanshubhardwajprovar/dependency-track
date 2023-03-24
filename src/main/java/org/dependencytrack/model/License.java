@@ -18,15 +18,16 @@
  */
 package org.dependencytrack.model;
 
-import alpine.json.TrimmedStringArrayDeserializer;
-import alpine.json.TrimmedStringDeserializer;
-import alpine.validation.RegexSequence;
+import alpine.common.validation.RegexSequence;
+import alpine.server.json.TrimmedStringArrayDeserializer;
+import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 import javax.jdo.annotations.Column;
 import javax.jdo.annotations.Extension;
 import javax.jdo.annotations.FetchGroup;
@@ -65,6 +66,7 @@ import java.util.UUID;
                 @Persistent(name = "osiApproved"),
                 @Persistent(name = "fsfLibre"),
                 @Persistent(name = "deprecatedLicenseId"),
+                @Persistent(name = "customLicense"),
                 @Persistent(name = "seeAlso"),
                 @Persistent(name = "licenseGroups"),
                 @Persistent(name = "uuid"),
@@ -74,6 +76,7 @@ import java.util.UUID;
                 @Persistent(name = "licenseId"),
                 @Persistent(name = "osiApproved"),
                 @Persistent(name = "fsfLibre"),
+                @Persistent(name = "customLicense")
         })
 })
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -154,6 +157,7 @@ public class License implements Serializable {
     @JsonAlias(value = "licenseExceptionId")
     @JsonDeserialize(using = TrimmedStringDeserializer.class)
     @Size(min = 1, max = 255)
+    @NotBlank
     @Pattern(regexp = RegexSequence.Definition.STRING_IDENTIFIER, message = "The licenseId may only contain alpha, numeric, and specific symbols _-.+")
     private String licenseId;
 
@@ -180,6 +184,14 @@ public class License implements Serializable {
     @Column(name = "ISDEPRECATED")
     @JsonProperty(value = "isDeprecatedLicenseId")
     private boolean deprecatedLicenseId;
+
+    /**
+     * Identifies if the license is a custom license created by a user.
+     */
+    @Persistent(defaultFetchGroup = "true")
+    @Column(name = "ISCUSTOMLICENSE", allowsNull = "true") // New column, must allow nulls on existing databases
+    @JsonProperty(value = "isCustomLicense")
+    private boolean customLicense;
 
     /**
      * The seeAlso field - may contain URLs to the original license info.
@@ -285,6 +297,15 @@ public class License implements Serializable {
 
     public void setDeprecatedLicenseId(boolean deprecatedLicenseId) {
         this.deprecatedLicenseId = deprecatedLicenseId;
+    }
+
+
+    public boolean isCustomLicense() {
+        return customLicense;
+    }
+
+    public void setCustomLicense(boolean customLicense) {
+        this.customLicense = customLicense;
     }
 
     public String[] getSeeAlso() {

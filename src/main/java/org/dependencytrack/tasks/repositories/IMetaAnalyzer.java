@@ -18,9 +18,10 @@
  */
 package org.dependencytrack.tasks.repositories;
 
-import com.github.packageurl.PackageURL;
+import org.dependencytrack.exception.MetaAnalyzerException;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.RepositoryType;
+import com.github.packageurl.PackageURL;
 
 /**
  * Interface that defines Repository Meta Analyzers.
@@ -37,6 +38,15 @@ public interface IMetaAnalyzer {
      * @since 3.1.0
      */
     void setRepositoryBaseUrl(String baseUrl);
+
+    /**
+     * Sets the username and password (or access token) to use for authentication with the repository. Should not be used for repositories that do not
+     * use Basic authentication.
+     * @param username the username for access to the repository.
+     * @param password the password or access token to be used for the repository.
+     * @since 4.6.0
+     */
+    void setRepositoryUsernameAndPassword(String username, String password);
 
     /**
      * Returns the type of repositry the analyzer supports.
@@ -56,6 +66,7 @@ public interface IMetaAnalyzer {
      * The component to analyze.
      * @param component the component to analyze
      * @return a MetaModel object
+     * @throws MetaAnalyzerException in case of any issue during metadata generation
      * @since 3.1.0
      */
     MetaModel analyze(Component component);
@@ -79,6 +90,11 @@ public interface IMetaAnalyzer {
                 if (analyzer.isApplicable(component)) {
                     return analyzer;
                 }
+            } else if ("cpan".equals(component.getPurl().getType())) {
+                IMetaAnalyzer analyzer = new CpanMetaAnalyzer();
+                if (analyzer.isApplicable(component)) {
+                    return analyzer;
+                }
             } else if (PackageURL.StandardTypes.GEM.equals(component.getPurl().getType())) {
                 IMetaAnalyzer analyzer = new GemMetaAnalyzer();
                 if (analyzer.isApplicable(component)) {
@@ -99,7 +115,7 @@ public interface IMetaAnalyzer {
                 if (analyzer.isApplicable(component)) {
                     return analyzer;
                 }
-            } else if ("hex".equals(component.getPurl().getType())) {
+            } else if (PackageURL.StandardTypes.HEX.equals(component.getPurl().getType())) {
                 IMetaAnalyzer analyzer = new HexMetaAnalyzer();
                 if (analyzer.isApplicable(component)) {
                     return analyzer;
@@ -115,6 +131,11 @@ public interface IMetaAnalyzer {
         return new IMetaAnalyzer() {
             @Override
             public void setRepositoryBaseUrl(String baseUrl) {
+            }
+
+            @Override
+            public void setRepositoryUsernameAndPassword(String username, String password) {
+
             }
 
             @Override

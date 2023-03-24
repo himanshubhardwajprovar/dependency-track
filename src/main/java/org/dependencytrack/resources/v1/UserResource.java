@@ -19,22 +19,22 @@
 package org.dependencytrack.resources.v1;
 
 import alpine.Config;
-import alpine.auth.AlpineAuthenticationException;
-import alpine.auth.AuthenticationNotRequired;
-import alpine.auth.Authenticator;
-import alpine.auth.JsonWebToken;
-import alpine.auth.OidcAuthenticationService;
-import alpine.auth.PasswordService;
-import alpine.auth.PermissionRequired;
-import alpine.crypto.KeyManager;
-import alpine.logging.Logger;
+import alpine.common.logging.Logger;
 import alpine.model.LdapUser;
 import alpine.model.ManagedUser;
 import alpine.model.OidcUser;
 import alpine.model.Permission;
 import alpine.model.Team;
 import alpine.model.UserPrincipal;
-import alpine.resources.AlpineResource;
+import alpine.security.crypto.KeyManager;
+import alpine.server.auth.AlpineAuthenticationException;
+import alpine.server.auth.AuthenticationNotRequired;
+import alpine.server.auth.Authenticator;
+import alpine.server.auth.JsonWebToken;
+import alpine.server.auth.OidcAuthenticationService;
+import alpine.server.auth.PasswordService;
+import alpine.server.auth.PermissionRequired;
+import alpine.server.resources.AlpineResource;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
@@ -99,10 +99,11 @@ public class UserResource extends AlpineResource {
             final String token = jwt.createToken(principal, permissions);
             return Response.ok(token).build();
         } catch (AlpineAuthenticationException e) {
-            super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / username: " + username);
             if (AlpineAuthenticationException.CauseType.SUSPENDED == e.getCauseType() || AlpineAuthenticationException.CauseType.UNMAPPED_ACCOUNT == e.getCauseType()) {
+                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / account is suspended / username: " + username);
                 return Response.status(Response.Status.FORBIDDEN).entity(e.getCauseType().name()).build();
             } else {
+                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / invalid credentials / username: " + username);
                 return Response.status(Response.Status.UNAUTHORIZED).entity(e.getCauseType().name()).build();
             }
         }
@@ -204,10 +205,11 @@ public class UserResource extends AlpineResource {
                 return Response.status(Response.Status.NOT_ACCEPTABLE).entity("Changing passwords for non-managed users is not forbidden. Password not changed.").build();
             }
         } catch (AlpineAuthenticationException e) {
-            super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / username: " + username);
             if (AlpineAuthenticationException.CauseType.SUSPENDED == e.getCauseType() || AlpineAuthenticationException.CauseType.UNMAPPED_ACCOUNT == e.getCauseType()) {
+                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / account is suspended / username: " + username);
                 return Response.status(Response.Status.FORBIDDEN).entity(e.getCauseType().name()).build();
             } else {
+                super.logSecurityEvent(LOGGER, SecurityMarkers.SECURITY_FAILURE, "Unauthorized login attempt / invalid credentials / username: " + username);
                 return Response.status(Response.Status.UNAUTHORIZED).entity(e.getCauseType().name()).build();
             }
         }

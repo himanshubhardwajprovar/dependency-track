@@ -25,6 +25,7 @@ import org.dependencytrack.event.IndexEvent;
 import org.dependencytrack.model.ComponentIdentity;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.model.ServiceComponent;
+
 import javax.jdo.FetchPlan;
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
@@ -58,6 +59,7 @@ final class ServiceComponentQueryManager extends QueryManager implements IQueryM
      */
     public ServiceComponent matchServiceIdentity(final Project project, final ComponentIdentity cid) {
         final Query<ServiceComponent> query = pm.newQuery(ServiceComponent.class, "project == :project && group == :group && name == :name && version == :version");
+        query.setRange(0, 1);
         return singleResult(query.executeWithArray(project, cid.getGroup(), cid.getName(), cid.getVersion()));
     }
 
@@ -114,7 +116,7 @@ final class ServiceComponentQueryManager extends QueryManager implements IQueryM
     public List<ServiceComponent> getAllServiceComponents() {
         final Query<ServiceComponent> query = pm.newQuery(ServiceComponent.class);
         query.setOrdering("id asc");
-        return query.executeResultList(ServiceComponent.class);
+        return query.executeList();
     }
 
     /**

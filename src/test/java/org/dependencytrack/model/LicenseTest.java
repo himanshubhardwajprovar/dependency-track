@@ -21,7 +21,6 @@ package org.dependencytrack.model;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
 
@@ -95,6 +94,13 @@ public class LicenseTest {
         License license = new License();
         license.setDeprecatedLicenseId(true);
         Assert.assertTrue(license.isDeprecatedLicenseId());
+    }
+
+    @Test
+    public void testCustomLicense() {
+        License license = new License();
+        license.setCustomLicense(true);
+        Assert.assertTrue(license.isCustomLicense());
     }
 
     @Test
